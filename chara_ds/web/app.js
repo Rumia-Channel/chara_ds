@@ -7,6 +7,8 @@ const $ = (id) => document.getElementById(id);
 let paused = false;
 let activeTab = "actor";
 let lastTimelineLen = 0;
+let selectedConversation = "__latest__";
+let lastSelectedConversation = "__latest__";
 
 document.querySelectorAll(".tab").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -20,6 +22,12 @@ document.querySelectorAll(".tab").forEach((btn) => {
 
 $("pause-toggle").addEventListener("change", (e) => {
   paused = e.target.checked;
+});
+
+$("timeline-select").addEventListener("change", (e) => {
+  selectedConversation = e.target.value || "__latest__";
+  lastTimelineLen = 0; // force scroll-to-bottom on switch
+  refresh();
 });
 
 function fmtJSON(obj) {
@@ -81,6 +89,13 @@ function renderActive(state) {
     const cur = active[id] || {};
     const card = document.createElement("div");
     card.className = "active-card";
+    if (id === selectedConversation) card.classList.add("selected");
+    card.addEventListener("click", () => {
+      selectedConversation = (selectedConversation === id) ? "__latest__" : id;
+      $("timeline-select").value = selectedConversation;
+      lastTimelineLen = 0;
+      refresh();
+    });
 
     const idEl = document.createElement("div");
     idEl.className = "ac-id";
@@ -110,6 +125,40 @@ function renderActive(state) {
   });
 }
 
+function syncTimelineSelector(state) {
+  const sel = $("timeline-select");
+  const active = state.active || {};
+  const ids = Object.keys(active).sort();
+
+  const desiredOptions = ["__latest__", ...ids];
+  const currentOptions = Array.from(sel.options).map((o) => o.value);
+  const same =
+    desiredOptions.length === currentOptions.length &&
+    desiredOptions.every((v, i) => v === currentOptions[i]);
+
+  if (!same) {
+    sel.innerHTML = "";
+    const optLatest = document.createElement("option");
+    optLatest.value = "__latest__";
+    optLatest.textContent = "Latest update";
+    sel.appendChild(optLatest);
+    ids.forEach((id) => {
+      const o = document.createElement("option");
+      o.value = id;
+      // Show short suffix to keep dropdown readable
+      const short = id.length > 28 ? "…" + id.slice(-26) : id;
+      o.textContent = short;
+      sel.appendChild(o);
+    });
+  }
+
+  // If selected conversation no longer exists, fall back to latest
+  if (selectedConversation !== "__latest__" && !(selectedConversation in active)) {
+    selectedConversation = "__latest__";
+  }
+  if (sel.value !== selectedConversation) sel.value = selectedConversation;
+}
+
 function speakerClass(sp) {
   const k = String(sp || "").trim().toUpperCase();
   if (k === "A") return "speaker-a";
@@ -121,18 +170,34 @@ function speakerClass(sp) {
 
 function renderTimeline(state) {
   const tl = $("timeline");
-  const items = state.latest_public_timeline || [];
+  let items;
+  let sourceLabel;
+  if (selectedConversation === "__latest__") {
+    items = state.latest_public_timeline || [];
+    sourceLabel = state.latest_public_timeline_id
+      ? "latest (" + state.latest_public_timeline_id + ")"
+      : "latest";
+  } else {
+    const slot = (state.active || {})[selectedConversation];
+    items = (slot && slot.public_timeline) || [];
+    sourceLabel = selectedConversation;
+  }
   $("timeline-count").textContent = items.length;
 
+  const switched = selectedConversation !== lastSelectedConversation;
   const wasAtBottom =
-    tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40 || items.length !== lastTimelineLen;
+    switched ||
+    tl.scrollHeight - tl.scrollTop - tl.clientHeight < 40 ||
+    items.length !== lastTimelineLen;
   tl.innerHTML = "";
 
   if (items.length === 0) {
     const d = document.createElement("div");
     d.className = "empty";
-    d.textContent = "timeline is empty";
+    d.textContent = "timeline is empty (" + sourceLabel + ")";
     tl.appendChild(d);
+    lastSelectedConversation = selectedConversation;
+    lastTimelineLen = 0;
     return;
   }
 
@@ -182,6 +247,7 @@ function renderTimeline(state) {
 
   if (wasAtBottom) tl.scrollTop = tl.scrollHeight;
   lastTimelineLen = items.length;
+  lastSelectedConversation = selectedConversation;
 }
 
 function renderDetail(state) {
@@ -280,6 +346,7 @@ async function refresh() {
     const state = await res.json();
     setStatus(state);
     setProgress(state);
+    syncTimelineSelector(state);
     renderActive(state);
     renderTimeline(state);
     renderDetail(state);

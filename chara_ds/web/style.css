@@ -185,6 +185,37 @@ html, body {
   padding: 10px 12px;
   margin-bottom: 8px;
   font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.active-card:hover {
+  border-color: var(--border-strong);
+}
+.active-card.selected {
+  border-color: var(--accent);
+  background: #1f2a3a;
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.timeline-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-select {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--bg-card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+  max-width: 260px;
+}
+.timeline-select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .active-card .ac-id {

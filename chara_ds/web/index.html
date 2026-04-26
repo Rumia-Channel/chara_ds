@@ -40,8 +40,13 @@
 
     <section class="col col-timeline">
       <div class="section-head">
-        <h2>Latest public timeline</h2>
-        <span class="count" id="timeline-count">0</span>
+        <h2>Public timeline</h2>
+        <div class="timeline-controls">
+          <select id="timeline-select" class="timeline-select" title="Select conversation">
+            <option value="__latest__">Latest update</option>
+          </select>
+          <span class="count" id="timeline-count">0</span>
+        </div>
       </div>
       <div id="timeline" class="timeline"></div>
     </section>

@@ -30,6 +30,7 @@ PROGRESS_STATE: Dict[str, Any] = {
     "summary": {},
     "active": {},
     "latest_public_timeline": [],
+    "latest_public_timeline_id": None,
     "last_persona": None,
     "last_controller": None,
     "last_actor": None,
@@ -95,11 +96,27 @@ def progress_update(
         if conversation_id is not None:
             if remove_active:
                 PROGRESS_STATE["active"].pop(conversation_id, None)
-            elif current is not None:
-                PROGRESS_STATE["active"][conversation_id] = progress_safe(current)
+            else:
+                prev = PROGRESS_STATE["active"].get(conversation_id) or {}
+                prev_timeline = prev.get("public_timeline")
+                if current is not None:
+                    new_slot = progress_safe(current) or {}
+                    if not isinstance(new_slot, dict):
+                        new_slot = {"current": new_slot}
+                else:
+                    new_slot = prev
+                if latest_public_timeline is not None:
+                    new_slot["public_timeline"] = progress_safe(latest_public_timeline)
+                elif prev_timeline is not None and current is not None:
+                    new_slot["public_timeline"] = prev_timeline
+                new_slot["updated_at"] = now
+                if current is not None or latest_public_timeline is not None:
+                    PROGRESS_STATE["active"][conversation_id] = new_slot
 
         if latest_public_timeline is not None:
             PROGRESS_STATE["latest_public_timeline"] = progress_safe(latest_public_timeline)
+            if conversation_id is not None:
+                PROGRESS_STATE["latest_public_timeline_id"] = conversation_id
 
         if last_persona is not None:
             PROGRESS_STATE["last_persona"] = progress_safe(last_persona)
