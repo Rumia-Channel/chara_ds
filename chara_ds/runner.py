@@ -25,6 +25,7 @@ from .io_utils import (
     load_prompts,
     now_iso,
     sha256_text,
+    sort_jsonl_by_conversation_id,
 )
 from .persona_buffer import PersonaBuffer
 from .progress import progress_update, start_progress_server
@@ -552,6 +553,8 @@ def main() -> None:
         producer_stop_event.set()
     if producer_thread is not None:
         producer_thread.join(timeout=120)
+
+    sort_jsonl_by_conversation_id(args.out)
 
     done_event = {
         "event": "done",

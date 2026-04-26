@@ -121,6 +121,35 @@ def count_jsonl_lines(path: str) -> int:
         return sum(1 for _ in f)
 
 
+def sort_jsonl_by_conversation_id(path: str) -> None:
+    if not os.path.exists(path):
+        return
+
+    with JSONL_WRITE_LOCK:
+        with open(path, "r", encoding="utf-8") as f:
+            raw_lines = [ln for ln in (line.rstrip("\n") for line in f) if ln.strip()]
+
+        if not raw_lines:
+            return
+
+        decoded: list[tuple[str, int, str]] = []
+        for idx, ln in enumerate(raw_lines):
+            try:
+                obj = json.loads(ln)
+                cid = obj.get("conversation_id") or ""
+            except Exception:
+                cid = ""
+            decoded.append((cid, idx, ln))
+
+        decoded.sort(key=lambda t: (t[0] == "", t[0], t[1]))
+
+        tmp_path = path + ".sort.tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            for _, _, ln in decoded:
+                f.write(ln + "\n")
+        os.replace(tmp_path, path)
+
+
 def clip_string(s: str, max_chars: int) -> str:
     if len(s) <= max_chars:
         return s
