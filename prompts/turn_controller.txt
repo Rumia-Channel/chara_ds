@@ -35,6 +35,15 @@ visible_action 制御:
 - public_event は、環境変化・行動・沈黙・視線・痛み・負傷・緊張などを書く。
 - should_end は、会話や場面が自然に区切れるときだけ true にする。
 
+conversation_pressure の使い方（重要）:
+- low / medium / high / extreme を会話の起伏に応じて動かす。extreme に固定しない。
+- 衝突が爆発した直後は high〜extreme でよいが、その後は一度 medium 以下に降ろし、
+  沈黙・気まずさ・諦め・反省・呼吸の整え・話題転換などのクールダウン局面を作る。
+  そこから再び圧力を上げると、起伏のある長尺データになる。
+- public_timeline 上、直近 2〜3 ターン連続で extreme が続いている場合、
+  特別な理由（新しい外的圧力の流入など）がない限り、今回は medium 以下に下げることを優先する。
+- 圧力の上下は scene_state と expected_next_effect にも反映させる。
+
 suggested_action labels:
 - greet
 - ask_softly
