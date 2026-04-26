@@ -41,6 +41,29 @@ Generated lines are appended to `--out` with sha256 dedup, so re-running
 just continues filling toward `--target`. Use `--use-existing-as-seed` to
 also feed already-existing lines as inspiration.
 
+### Inline situation generation during `main.py`
+
+You can also have `main.py` grow `format.txt` *while it runs*, by passing
+`--auto-generate-situations`. A background producer (deepseek-v4-flash)
+appends new situations whenever a dialogue worker would otherwise need a
+line that doesn't exist yet. Workers block until the producer adds one.
+
+```powershell
+uv run python main.py `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues.jsonl `
+  --variations-per-line 1 `
+  --num-conversations 200 `
+  --workers 6 `
+  --auto-generate-situations `
+  --situation-batch-size 8 `
+  --situation-seed "Aは..., Bは..., ..."
+```
+
+Producer runs are async; if it can't keep up, workers wait. If it
+permanently fails (max iterations reached), waiting workers fail with
+`persona line N unavailable` instead of hanging.
+
 ## Files
 
 ```text

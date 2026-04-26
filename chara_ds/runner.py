@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import sys
 import time
@@ -24,25 +25,33 @@ from .io_utils import (
     now_iso,
     sha256_text,
 )
+from .persona_buffer import PersonaBuffer
 from .progress import progress_update, start_progress_server
+from .situation_gen import SITUATION_GEN_MODEL_DEFAULT
+from .situation_producer import start_background_producer
 
 
 def pick_persona_line_for_index(
     *,
     idx0: int,
     args: argparse.Namespace,
-    persona_lines: List[PersonaLine],
+    buffer: PersonaBuffer,
+    pool_size: int,
 ) -> Tuple[PersonaLine, int]:
     if args.sampling == "random":
         rng = random.Random(args.seed + idx0 * 7919)
-        persona_line = persona_lines[rng.randrange(len(persona_lines))]
+        line_index = rng.randrange(pool_size)
         variation = 1 + rng.randrange(args.variations_per_line)
-        return persona_line, variation
+    else:
+        line_index = (idx0 // args.variations_per_line) % pool_size
+        variation = (idx0 % args.variations_per_line) + 1
 
-    line_index = idx0 // args.variations_per_line
-    variation = (idx0 % args.variations_per_line) + 1
-    persona_line = persona_lines[line_index % len(persona_lines)]
-
+    persona_line = buffer.wait_for_index(line_index)
+    if persona_line is None:
+        raise RuntimeError(
+            f"persona line {line_index} unavailable: "
+            f"buffer size={len(buffer)}, finished={buffer.is_finished()}"
+        )
     return persona_line, variation
 
 
@@ -51,7 +60,8 @@ def run_one_conversation_task(
     idx0: int,
     args: argparse.Namespace,
     prompts: PromptBundle,
-    persona_lines: List[PersonaLine],
+    buffer: PersonaBuffer,
+    pool_size: int,
     errors_out: str,
     persona_thinking_enabled: bool,
     turn_controller_thinking_enabled: bool,
@@ -62,7 +72,8 @@ def run_one_conversation_task(
     persona_line, variation = pick_persona_line_for_index(
         idx0=idx0,
         args=args,
-        persona_lines=persona_lines,
+        buffer=buffer,
+        pool_size=pool_size,
     )
 
     client = get_thread_client(args.base_url)
@@ -194,6 +205,53 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--progress-host", default="127.0.0.1")
     parser.add_argument("--progress-port", type=int, default=8765)
 
+    # ---- Auto situation generation (background DeepSeek flash producer) ----
+    parser.add_argument(
+        "--auto-generate-situations",
+        action="store_true",
+        help=(
+            "While dialogues are being generated, run a background producer "
+            "that grows --persona-txt with new situations using DeepSeek flash. "
+            "Workers needing a situation that doesn't exist yet will block "
+            "until the producer appends one."
+        ),
+    )
+    parser.add_argument(
+        "--situation-batch-size",
+        type=int,
+        default=8,
+        help="Situations per producer API call.",
+    )
+    parser.add_argument(
+        "--situation-max-iterations",
+        type=int,
+        default=200,
+        help="Hard cap on producer iterations (safety net).",
+    )
+    parser.add_argument(
+        "--situation-model",
+        default=SITUATION_GEN_MODEL_DEFAULT,
+        help="Model used by the background situation producer.",
+    )
+    parser.add_argument(
+        "--situation-prompt-file",
+        default="./prompts/situation_gen.txt",
+    )
+    parser.add_argument("--situation-temperature", type=float, default=1.1)
+    parser.add_argument("--situation-top-p", type=float, default=0.95)
+    parser.add_argument("--situation-max-tokens", type=int, default=0)
+    parser.add_argument(
+        "--situation-seed",
+        action="append",
+        default=[],
+        help="Extra seed situation for the producer (repeatable).",
+    )
+    parser.add_argument(
+        "--situation-seed-file",
+        default=None,
+        help="Optional file: one seed situation per line.",
+    )
+
     return parser.parse_args()
 
 
@@ -215,11 +273,37 @@ def main() -> None:
     persona_lines = load_persona_lines(args.persona_txt)
     prompts = load_prompts(args.prompt_dir)
 
-    total_requested = (
-        args.num_conversations
-        if args.num_conversations is not None
-        else len(persona_lines) * args.variations_per_line
+    initial_pool = len(persona_lines)
+    if args.num_conversations is not None:
+        total_requested = args.num_conversations
+    else:
+        total_requested = initial_pool * args.variations_per_line
+
+    needed_situations = max(
+        initial_pool, math.ceil(total_requested / args.variations_per_line)
     )
+
+    auto_gen_active = (
+        args.auto_generate_situations and needed_situations > initial_pool
+    )
+
+    if needed_situations > initial_pool and not args.auto_generate_situations:
+        print(
+            json.dumps(
+                {
+                    "event": "warning_pool_too_small",
+                    "persona_lines": initial_pool,
+                    "needed_situations": needed_situations,
+                    "hint": "pass --auto-generate-situations to grow format.txt on the fly",
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+
+    persona_buffer = PersonaBuffer(initial=persona_lines)
+    pool_size_for_indexing = needed_situations
 
     errors_out = args.errors_out or args.out + ".errors.jsonl"
     already_done = count_jsonl_lines(args.out) if args.resume else 0
@@ -231,6 +315,42 @@ def main() -> None:
     persona_thinking_enabled = not args.disable_persona_thinking
     turn_controller_thinking_enabled = args.enable_turn_controller_thinking
     actor_thinking_enabled = not args.disable_actor_thinking
+
+    if auto_gen_active:
+        seeds: List[str] = list(args.situation_seed or [])
+        if args.situation_seed_file:
+            from .io_utils import read_text as _read_text
+            for line in _read_text(args.situation_seed_file).splitlines():
+                s = line.strip()
+                if s and not s.startswith("#"):
+                    seeds.append(s)
+        if not seeds:
+            # Inspire from existing format.txt content.
+            seeds = [pl.text for pl in persona_lines[:8]]
+
+        start_background_producer(
+            buffer=persona_buffer,
+            out_path=args.persona_txt,
+            prompt_file=args.situation_prompt_file,
+            seeds=seeds,
+            target_count=needed_situations,
+            batch_size=args.situation_batch_size,
+            max_iterations=args.situation_max_iterations,
+            model=args.situation_model,
+            base_url=args.base_url,
+            temperature=args.situation_temperature,
+            top_p=args.situation_top_p,
+            max_tokens=(
+                args.situation_max_tokens if args.situation_max_tokens > 0 else None
+            ),
+            retries=args.retries,
+            retry_base_sleep=args.retry_base_sleep,
+            seed=args.seed,
+        )
+    else:
+        # No producer: persona_buffer is fixed; mark it finished so callers
+        # asking for an out-of-range index (which shouldn't happen) fail fast.
+        persona_buffer.mark_finished()
 
     if args.progress_server:
         start_progress_server(args.progress_host, args.progress_port)
@@ -257,7 +377,9 @@ def main() -> None:
         "errors_out": errors_out,
         "persona_txt": args.persona_txt,
         "prompt_dir": args.prompt_dir,
-        "persona_lines": len(persona_lines),
+        "persona_lines": initial_pool,
+        "needed_situations": needed_situations,
+        "auto_generate_situations": auto_gen_active,
         "total_requested": total_requested,
         "already_done": already_done,
         "workers": args.workers,
@@ -305,7 +427,8 @@ def main() -> None:
                     idx0=idx0,
                     args=args,
                     prompts=prompts,
-                    persona_lines=persona_lines,
+                    buffer=persona_buffer,
+                    pool_size=pool_size_for_indexing,
                     errors_out=errors_out,
                     persona_thinking_enabled=persona_thinking_enabled,
                     turn_controller_thinking_enabled=turn_controller_thinking_enabled,
@@ -352,7 +475,8 @@ def main() -> None:
                         idx0=idx0,
                         args=args,
                         prompts=prompts,
-                        persona_lines=persona_lines,
+                        buffer=persona_buffer,
+                        pool_size=pool_size_for_indexing,
                         errors_out=errors_out,
                         persona_thinking_enabled=persona_thinking_enabled,
                         turn_controller_thinking_enabled=turn_controller_thinking_enabled,
