@@ -21,6 +21,7 @@ from .persona_buffer import PersonaBuffer
 from .situation_gen import (
     EMOTION_VOCAB,
     SITUATION_GEN_MODEL_DEFAULT,
+    TONE_VOCAB,
     append_line,
     call_generator,
 )
@@ -94,6 +95,7 @@ def start_background_producer(
                 snap = buffer.snapshot()
                 existing_texts = [item.text for item in snap]
                 focus = rng.sample(EMOTION_VOCAB, k=min(4, len(EMOTION_VOCAB)))
+                tone_focus = rng.sample(TONE_VOCAB, k=min(4, len(TONE_VOCAB)))
                 existing_examples = (
                     rng.sample(
                         existing_texts,
@@ -113,6 +115,7 @@ def start_background_producer(
                             existing_examples=existing_examples,
                             batch_size=batch_size,
                             requested_emotion_focus=focus,
+                            requested_tone_focus=tone_focus,
                             temperature=temperature,
                             top_p=top_p,
                             max_tokens=max_tokens,
@@ -123,6 +126,7 @@ def start_background_producer(
                             "stage": "situation_gen_background",
                             "iteration": iteration,
                             "focus": focus,
+                            "tone_focus": tone_focus,
                         },
                         retry_base_sleep=retry_base_sleep,
                     )
@@ -166,6 +170,7 @@ def start_background_producer(
                     "total": len(buffer),
                     "target": target_count,
                     "focus": focus,
+                    "tone_focus": tone_focus,
                 })
         finally:
             buffer.mark_finished()

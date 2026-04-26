@@ -31,6 +31,28 @@ SITUATION_GEN_MODEL_DEFAULT = "deepseek-v4-flash"
 EMOTION_VOCAB = [
     "怒り", "悲しみ", "喜び", "虚無感", "恐れ", "嫌悪", "驚き",
     "羞恥", "愛情", "嫉妬", "罪悪感", "誇り", "軽蔑", "切なさ", "興奮",
+    "不安", "苛立ち", "退屈", "面倒くささ", "優越感", "無関心",
+    "性的興奮", "ばかばかしさ", "好奇心", "憎悪", "しらけ", "呆れ",
+    "自己嫌悪", "依存", "支配欲",
+]
+
+TONE_VOCAB = [
+    "stupid_banter",          # しょうもない雑談・悪ふざけ・下ネタ
+    "trivial_chitchat",       # 退屈な日常会話・雑談
+    "everyday_complaint",     # しょうもない愚痴
+    "anxious_inner_monologue", # 不安・焦り・自己嫌悪
+    "dark_resentment",        # どす黒い恨み・嫉妬・憎悪
+    "passive_aggressive",     # 嫌味・遠回しな攻撃・陰口
+    "power_play",             # マウント・支配・見下し
+    "sexual_tension",         # 性的緊張・欲望・嫉妬
+    "violent_clash",          # 怒鳴り合い・取っ組み合い・修羅場
+    "embarrassing_secret",    # 暴露・告白・恥ずかしい本音
+    "boring_smalltalk",       # 低カロリーな当たり障りない会話
+    "absurd_misunderstanding", # 滑稽な勘違い・ばかばかしい衝突
+    "cynical_humor",          # 皮肉・冷笑・しらけ
+    "dependent_clinging",     # 依存・束縛・つきまとい
+    "heartfelt_reconciliation", # 真摯な和解・許し
+    "quiet_melancholy",       # 静かな寂しさ・諦め
 ]
 
 SITUATION_TOOL_NAME = "submit_situations"
@@ -62,8 +84,16 @@ SITUATION_TOOL_PARAMETERS: Dict[str, Any] = {
                             "enum": EMOTION_VOCAB,
                         },
                     },
+                    "tone": {
+                        "type": "string",
+                        "description": (
+                            "このシチュエーションのトーン/ジャンルラベル。"
+                            "requested_tone_focus と整合させ、batch 内で多様化する。"
+                        ),
+                        "enum": TONE_VOCAB,
+                    },
                 },
-                "required": ["text", "dominant_emotions"],
+                "required": ["text", "dominant_emotions", "tone"],
                 "additionalProperties": False,
             },
         }
@@ -118,6 +148,7 @@ def call_generator(
     existing_examples: List[str],
     batch_size: int,
     requested_emotion_focus: List[str],
+    requested_tone_focus: List[str],
     temperature: float,
     top_p: float,
     max_tokens: Optional[int],
@@ -127,15 +158,19 @@ def call_generator(
         "instruction": (
             f"submit_situations を呼び出し、situations 配列に {batch_size} 件、"
             "互いに重複しない多様なシチュエーションを入れる。"
+            "requested_tone_focus に挙がったトーンは batch 内で必ずカバーし、"
+            "感動寄り・教訓寄りに偏らないこと。"
             "本文には何も書かない。"
         ),
         "seed_situations": seed_situations,
         "emotion_vocabulary": EMOTION_VOCAB,
+        "tone_vocabulary": TONE_VOCAB,
     }
 
     payload = {
         "batch_size": batch_size,
         "requested_emotion_focus": requested_emotion_focus,
+        "requested_tone_focus": requested_tone_focus,
         "existing_examples": existing_examples,
     }
 
@@ -168,6 +203,7 @@ def call_generator(
             {
                 "text": normalize_text(text),
                 "dominant_emotions": it.get("dominant_emotions") or [],
+                "tone": it.get("tone") or "",
             }
         )
     return out
@@ -255,6 +291,7 @@ def main() -> None:
         iteration += 1
         # Rotate emotion focus so subsequent batches diversify.
         focus = rng.sample(EMOTION_VOCAB, k=min(4, len(EMOTION_VOCAB)))
+        tone_focus = rng.sample(TONE_VOCAB, k=min(4, len(TONE_VOCAB)))
         existing_sample = (
             rng.sample(existing, k=min(args.existing_sample, len(existing)))
             if existing else []
@@ -270,6 +307,7 @@ def main() -> None:
                     existing_examples=existing_sample,
                     batch_size=args.batch_size,
                     requested_emotion_focus=focus,
+                    requested_tone_focus=tone_focus,
                     temperature=args.temperature,
                     top_p=args.top_p,
                     max_tokens=args.max_tokens if args.max_tokens > 0 else None,
@@ -280,6 +318,7 @@ def main() -> None:
                     "stage": "situation_gen",
                     "iteration": iteration,
                     "focus": focus,
+                    "tone_focus": tone_focus,
                 },
                 retry_base_sleep=args.retry_base_sleep,
             )
@@ -315,6 +354,7 @@ def main() -> None:
                 "total": len(existing_hashes),
                 "target": args.target,
                 "focus": focus,
+                "tone_focus": tone_focus,
             },
             ensure_ascii=False,
         ), file=sys.stderr)
