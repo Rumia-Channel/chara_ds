@@ -128,11 +128,25 @@ def call_deepseek_json(
         kwargs["extra_body"] = extra_body
         response = client.chat.completions.create(**kwargs)
 
-    msg = response.choices[0].message
+    choice = response.choices[0]
+    msg = choice.message
     raw_content = msg.content or ""
     reasoning_content = get_reasoning_content(msg)
-    parsed = parse_json(raw_content)
     usage = usage_to_dict(getattr(response, "usage", None))
+    finish_reason = getattr(choice, "finish_reason", None)
+
+    # 空 content の場合は finish_reason / usage / reasoning 有無を含めて投げる。
+    # これで content_filter / length / thinking-only といった原因が即座に切り分けられる。
+    if not raw_content.strip():
+        raise ValueError(
+            "empty model content "
+            f"(finish_reason={finish_reason!r}, "
+            f"has_reasoning={reasoning_content is not None}, "
+            f"reasoning_len={len(reasoning_content) if reasoning_content else 0}, "
+            f"usage={usage})"
+        )
+
+    parsed = parse_json(raw_content)
 
     return parsed, reasoning_content, usage, raw_content
 
