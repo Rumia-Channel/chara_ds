@@ -165,6 +165,82 @@ def call_deepseek_json(
     return parsed, reasoning_content, usage, raw_content
 
 
+def call_deepseek_text(
+    client: OpenAI,
+    *,
+    model: str,
+    system_prompt: str,
+    user_payload: Dict[str, Any],
+    max_tokens: Optional[int],
+    reasoning_effort: str,
+    thinking_enabled: bool,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+) -> Tuple[str, Optional[str], Dict[str, Any], str]:
+    """Plain-text variant of `call_deepseek_json` used for marker-format outputs.
+
+    Returns (text, reasoning_content, usage, raw_content). `text` is the model's
+    `message.content` (or, if empty, the reasoning_content as a fallback when
+    DeepSeek's thinking mode swallows the body into reasoning).
+    """
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": json.dumps(user_payload, ensure_ascii=False),
+        },
+    ]
+
+    kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+    }
+
+    if max_tokens is not None and max_tokens > 0:
+        kwargs["max_tokens"] = max_tokens
+
+    if thinking_enabled:
+        kwargs["reasoning_effort"] = reasoning_effort
+        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+    else:
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+
+    try:
+        response = client.chat.completions.create(**kwargs)
+    except TypeError:
+        kwargs.pop("reasoning_effort", None)
+        extra_body = kwargs.get("extra_body") or {}
+        if thinking_enabled:
+            extra_body["reasoning_effort"] = reasoning_effort
+        kwargs["extra_body"] = extra_body
+        response = client.chat.completions.create(**kwargs)
+
+    choice = response.choices[0]
+    msg = choice.message
+    raw_content = msg.content or ""
+    reasoning_content = get_reasoning_content(msg)
+    usage = usage_to_dict(getattr(response, "usage", None))
+    finish_reason = getattr(choice, "finish_reason", None)
+
+    if not raw_content.strip():
+        if reasoning_content and reasoning_content.strip():
+            return reasoning_content, reasoning_content, usage, reasoning_content
+
+        raise ValueError(
+            "empty model content "
+            f"(finish_reason={finish_reason!r}, "
+            f"has_reasoning={reasoning_content is not None}, "
+            f"reasoning_len={len(reasoning_content) if reasoning_content else 0}, "
+            f"usage={usage})"
+        )
+
+    return raw_content, reasoning_content, usage, raw_content
+
+
 def call_with_retries(
     fn,
     *,

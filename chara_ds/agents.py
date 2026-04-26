@@ -2,12 +2,69 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from openai import OpenAI
 
-from .api_client import call_deepseek_json
+from .api_client import call_deepseek_json, call_deepseek_text
 from .config import PromptBundle
+
+
+# Marker labels expected from the actor's plain-text output. Order matters for
+# rendering only — parsing is order-agnostic.
+ACTOR_MARKERS: List[Tuple[str, str]] = [
+    ("thinking_trace_ja", "思考"),
+    ("character_thought", "内心"),
+    ("physical_action", "行動"),
+    ("public_utterance", "発話"),
+    ("subtext", "潜在"),
+]
+
+_ACTOR_MARKER_LABELS = {label: key for key, label in ACTOR_MARKERS}
+# Match a section header like "[思考]" sitting on its own line, allowing
+# surrounding whitespace and full-width brackets as a tolerant fallback.
+_ACTOR_SECTION_RE = re.compile(
+    r"^[ \t\u3000]*[\[【]\s*(?P<label>[^\]\】]+?)\s*[\]\】][ \t\u3000]*$",
+    re.MULTILINE,
+)
+
+
+def parse_actor_markers(text: str) -> Dict[str, str]:
+    """Parse the marker-format actor output into a dict keyed by field name.
+
+    Unknown labels are ignored. Missing sections are left absent (caller decides
+    what's mandatory).
+    """
+    if not isinstance(text, str):
+        return {}
+
+    # Strip a surrounding markdown code fence if the model wrapped the output.
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        # remove the first fence line
+        first_nl = stripped.find("\n")
+        if first_nl != -1:
+            stripped = stripped[first_nl + 1 :]
+        if stripped.rstrip().endswith("```"):
+            stripped = stripped.rstrip()[: -3]
+
+    matches = list(_ACTOR_SECTION_RE.finditer(stripped))
+    if not matches:
+        return {}
+
+    result: Dict[str, str] = {}
+    for i, m in enumerate(matches):
+        label = m.group("label").strip()
+        key = _ACTOR_MARKER_LABELS.get(label)
+        if key is None:
+            continue
+        body_start = m.end()
+        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(stripped)
+        body = stripped[body_start:body_end].strip()
+        result[key] = body
+
+    return result
 
 
 def validate_persona_output(obj: Dict[str, Any]) -> bool:
@@ -29,26 +86,15 @@ def validate_turn_control_output(obj: Dict[str, Any]) -> bool:
 
 
 def validate_actor_output(obj: Dict[str, Any], speaker: str) -> bool:
+    """Only the public utterance is mandatory; everything else is best-effort."""
     if not isinstance(obj, dict):
         return False
 
     if obj.get("speaker") != speaker:
         return False
 
-    required = [
-        "private_state",
-        "thinking_trace_ja",
-        "character_thought",
-        "dialogue_control",
-        "physical_action",
-        "public_utterance",
-        "subtext",
-    ]
-
-    if not all(k in obj for k in required):
-        return False
-
-    return isinstance(obj.get("public_utterance"), str) and bool(obj["public_utterance"].strip())
+    utt = obj.get("public_utterance")
+    return isinstance(utt, str) and bool(utt.strip())
 
 
 def call_persona_controller(
@@ -173,14 +219,15 @@ def call_actor(
         "public_event": turn_control.get("public_event"),
         "public_timeline": public_timeline,
         "instruction": (
-            "speaker の次の1ターンだけを json で生成する。"
+            "speaker の次の1ターンだけを、指定されたマーカー形式（[思考]/[内心]/[行動]/[発話]/[潜在]）で生成する。"
+            "json は出さない。"
             "public_timeline の visible_action が自分に向けられている場合は自然に反応する。"
         ),
     }
 
     actor_prompt = prompts.actor.replace("__SPEAKER__", speaker)
 
-    parsed, reasoning, usage, raw = call_deepseek_json(
+    text, reasoning, usage, raw = call_deepseek_text(
         client,
         model=model,
         system_prompt=actor_prompt,
@@ -190,7 +237,21 @@ def call_actor(
         thinking_enabled=thinking_enabled,
     )
 
+    fields = parse_actor_markers(text)
+
+    parsed: Dict[str, Any] = {
+        "speaker": speaker,
+        "thinking_trace_ja": fields.get("thinking_trace_ja", ""),
+        "character_thought": fields.get("character_thought", ""),
+        "physical_action": fields.get("physical_action", ""),
+        "public_utterance": fields.get("public_utterance", ""),
+        "subtext": fields.get("subtext", ""),
+    }
+
     if not validate_actor_output(parsed, speaker):
-        raise ValueError(f"invalid actor output for speaker {speaker}")
+        raise ValueError(
+            f"invalid actor output for speaker {speaker} "
+            f"(parsed_keys={sorted(fields.keys())}, raw_len={len(raw)})"
+        )
 
     return parsed, reasoning, usage, raw

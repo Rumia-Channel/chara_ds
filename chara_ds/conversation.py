@@ -36,10 +36,12 @@ def make_public_timeline_event(
     actor_content: Dict[str, Any],
 ) -> Dict[str, Any]:
     physical_action = actor_content.get("physical_action")
-    visible_action = None
 
-    if isinstance(physical_action, dict) and physical_action.get("visible_to_other", True):
-        visible_action = physical_action
+    # physical_action is now a free-text string from the marker format. Treat
+    # any non-empty action as visible (the model decides "特に動かない" etc.).
+    visible_action: Optional[str] = None
+    if isinstance(physical_action, str) and physical_action.strip():
+        visible_action = physical_action.strip()
 
     return {
         "turn": turn_index,
