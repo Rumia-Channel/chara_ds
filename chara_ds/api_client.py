@@ -93,8 +93,13 @@ def call_deepseek_json(
     kwargs: Dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "response_format": {"type": "json_object"},
     }
+
+    # NOTE: response_format={"type": "json_object"} は付けない。
+    # DeepSeek の thinking モードと JSON 強制モードを併用すると、
+    # 出力トークンが丸ごと reasoning に吸収されて content が空になる事象がある。
+    # プロンプト側で json schema を明示しているため、強制せずとも JSON は返る。
+    # parse_json はコードフェンス除去と {...} 抽出に対応しているので堅牢。
 
     # 0 or None の場合は max_tokens を API に渡さない。
     if max_tokens is not None and max_tokens > 0:
