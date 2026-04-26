@@ -135,9 +135,18 @@ def call_deepseek_json(
     usage = usage_to_dict(getattr(response, "usage", None))
     finish_reason = getattr(choice, "finish_reason", None)
 
-    # 空 content の場合は finish_reason / usage / reasoning 有無を含めて投げる。
-    # これで content_filter / length / thinking-only といった原因が即座に切り分けられる。
+    # DeepSeek thinking モード × JSON 強制モードでは、出力が丸ごと reasoning に
+    # 吸収されて content が空のまま finish_reason='stop' で返ることがある。
+    # その場合、reasoning_content の中に JSON 本文が含まれているケースが多いので
+    # フォールバックとして救出を試みる。失敗したら従来どおり原因情報付きで例外。
     if not raw_content.strip():
+        if reasoning_content and reasoning_content.strip():
+            try:
+                parsed = parse_json(reasoning_content)
+                return parsed, reasoning_content, usage, reasoning_content
+            except Exception:
+                pass
+
         raise ValueError(
             "empty model content "
             f"(finish_reason={finish_reason!r}, "
