@@ -288,12 +288,15 @@ def main() -> None:
     )
 
     if needed_situations > initial_pool and not args.auto_generate_situations:
+        capped_total = initial_pool * args.variations_per_line
         print(
             json.dumps(
                 {
-                    "event": "warning_pool_too_small",
+                    "event": "capped_total_to_pool",
                     "persona_lines": initial_pool,
-                    "needed_situations": needed_situations,
+                    "variations_per_line": args.variations_per_line,
+                    "requested": total_requested,
+                    "capped_to": capped_total,
                     "hint": "pass --auto-generate-situations to grow format.txt on the fly",
                 },
                 ensure_ascii=False,
@@ -301,6 +304,8 @@ def main() -> None:
             file=sys.stderr,
             flush=True,
         )
+        total_requested = capped_total
+        needed_situations = initial_pool
 
     persona_buffer = PersonaBuffer(initial=persona_lines)
     pool_size_for_indexing = needed_situations
