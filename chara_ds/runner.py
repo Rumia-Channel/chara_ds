@@ -29,6 +29,7 @@ from .io_utils import (
     sort_jsonl_by_conversation_id,
 )
 from .persona_buffer import PersonaBuffer
+from .turn_cache import delete_turn_cache, ensure_cache_dir
 from .progress import (
     is_stopped,
     progress_update,
@@ -75,6 +76,7 @@ def run_one_conversation_task(
     persona_thinking_enabled: bool,
     turn_controller_thinking_enabled: bool,
     actor_thinking_enabled: bool,
+    cache_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     conversation_index = idx0 + 1
 
@@ -123,6 +125,7 @@ def run_one_conversation_task(
             errors_out=errors_out,
             retries=args.retries,
             retry_base_sleep=args.retry_base_sleep,
+            cache_dir=cache_dir,
         )
         return {
             "ok": True,
@@ -219,6 +222,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sleep", type=float, default=0.0)
 
     parser.add_argument("--keep-raw-content", action="store_true")
+    parser.add_argument(
+        "--turn-cache-dir",
+        type=str,
+        default="",
+        help=(
+            "Directory for per-turn conversation caches. Empty (default) means "
+            "<out>.cache. Each in-flight conversation writes a snapshot after "
+            "every successful turn so --resume can continue mid-conversation. "
+            "Caches are deleted after the final record is appended to the jsonl."
+        ),
+    )
+    parser.add_argument(
+        "--no-turn-cache",
+        action="store_true",
+        help="Disable per-turn caching (in-flight conversations are restarted from turn 1).",
+    )
     parser.add_argument("--resume", action="store_true")
 
     parser.add_argument("--progress-server", action="store_true")
@@ -353,6 +372,12 @@ def main() -> None:
     else:
         done_indices = set()
         already_done = 0
+
+    if args.no_turn_cache:
+        cache_dir: Optional[str] = None
+    else:
+        cache_dir = args.turn_cache_dir or (args.out + ".cache")
+        ensure_cache_dir(cache_dir)
 
     if already_done >= total_requested:
         print(f"nothing to do: {already_done} >= {total_requested}", file=sys.stderr)
@@ -506,6 +531,7 @@ def main() -> None:
                     persona_thinking_enabled=persona_thinking_enabled,
                     turn_controller_thinking_enabled=turn_controller_thinking_enabled,
                     actor_thinking_enabled=actor_thinking_enabled,
+                    cache_dir=cache_dir,
                 )
 
                 if result.get("skipped"):
@@ -515,6 +541,8 @@ def main() -> None:
                 if result["ok"]:
                     append_jsonl(args.out, result["record"])
                     written += 1
+                    if cache_dir:
+                        delete_turn_cache(cache_dir, result["record"]["id"])
 
                 progress_update(
                     summary={
@@ -558,6 +586,7 @@ def main() -> None:
                         persona_thinking_enabled=persona_thinking_enabled,
                         turn_controller_thinking_enabled=turn_controller_thinking_enabled,
                         actor_thinking_enabled=actor_thinking_enabled,
+                        cache_dir=cache_dir,
                     )
                     for idx0 in work_indices
                 ]
@@ -572,6 +601,8 @@ def main() -> None:
                     if result["ok"]:
                         append_jsonl(args.out, result["record"])
                         written += 1
+                        if cache_dir:
+                            delete_turn_cache(cache_dir, result["record"]["id"])
                     else:
                         print(
                             json.dumps(
