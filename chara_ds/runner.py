@@ -24,6 +24,7 @@ from .io_utils import (
     load_persona_lines,
     load_prompts,
     now_iso,
+    read_done_indices,
     sha256_text,
     sort_jsonl_by_conversation_id,
 )
@@ -346,7 +347,12 @@ def main() -> None:
     register_persona_buffer(persona_buffer, args.persona_txt, initial_pool)
 
     errors_out = args.errors_out or args.out + ".errors.jsonl"
-    already_done = count_jsonl_lines(args.out) if args.resume else 0
+    if args.resume:
+        done_indices = read_done_indices(args.out)
+        already_done = len(done_indices)
+    else:
+        done_indices = set()
+        already_done = 0
 
     if already_done >= total_requested:
         print(f"nothing to do: {already_done} >= {total_requested}", file=sys.stderr)
@@ -481,7 +487,7 @@ def main() -> None:
     )
 
     written = already_done
-    work_indices = list(range(already_done, total_requested))
+    work_indices = [i for i in range(total_requested) if i not in done_indices]
 
     if args.workers <= 1:
         get_thread_client(args.base_url)

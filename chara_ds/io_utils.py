@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -119,6 +120,41 @@ def count_jsonl_lines(path: str) -> int:
 
     with open(path, "r", encoding="utf-8") as f:
         return sum(1 for _ in f)
+
+
+_CID_INDEX_RE = re.compile(r"persona_deepseek_triple_ja_(\d+)")
+
+
+def read_done_indices(path: str) -> set:
+    """Return the set of conversation_index (idx0) values already present
+    in the output jsonl. Used by --resume so that, with parallel workers,
+    we skip exactly the conversations that completed and re-run any indices
+    that were in flight when the previous run was stopped."""
+
+    if not os.path.exists(path):
+        return set()
+
+    done: set = set()
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            cid = rec.get("conversation_id")
+            if not isinstance(cid, str):
+                continue
+            m = _CID_INDEX_RE.search(cid)
+            if not m:
+                continue
+            try:
+                done.add(int(m.group(1)))
+            except ValueError:
+                continue
+    return done
 
 
 def sort_jsonl_by_conversation_id(path: str) -> None:
