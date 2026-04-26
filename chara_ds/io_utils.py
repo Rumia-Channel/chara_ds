@@ -126,10 +126,15 @@ _CID_INDEX_RE = re.compile(r"persona_deepseek_triple_ja_(\d+)")
 
 
 def read_done_indices(path: str) -> set:
-    """Return the set of conversation_index (idx0) values already present
-    in the output jsonl. Used by --resume so that, with parallel workers,
-    we skip exactly the conversations that completed and re-run any indices
-    that were in flight when the previous run was stopped."""
+    """Return the set of zero-based idx0 values already present in the output
+    jsonl. Used by --resume so that, with parallel workers, we skip exactly
+    the conversations that completed and re-run any indices that were in
+    flight when the previous run was stopped.
+
+    Note: conversation_id encodes conversation_index = idx0 + 1
+    (see runner.run_one_conversation_task), so we subtract 1 here to align
+    with work_indices, which iterates over zero-based idx0.
+    """
 
     if not os.path.exists(path):
         return set()
@@ -144,16 +149,19 @@ def read_done_indices(path: str) -> set:
                 rec = json.loads(line)
             except Exception:
                 continue
-            cid = rec.get("conversation_id")
+            cid = rec.get("id") or rec.get("conversation_id")
             if not isinstance(cid, str):
                 continue
             m = _CID_INDEX_RE.search(cid)
             if not m:
                 continue
             try:
-                done.add(int(m.group(1)))
+                conversation_index = int(m.group(1))
             except ValueError:
                 continue
+            if conversation_index <= 0:
+                continue
+            done.add(conversation_index - 1)
     return done
 
 
@@ -172,7 +180,7 @@ def sort_jsonl_by_conversation_id(path: str) -> None:
         for idx, ln in enumerate(raw_lines):
             try:
                 obj = json.loads(ln)
-                cid = obj.get("conversation_id") or ""
+                cid = obj.get("id") or obj.get("conversation_id") or ""
             except Exception:
                 cid = ""
             decoded.append((cid, idx, ln))
