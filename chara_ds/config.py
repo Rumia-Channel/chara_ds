@@ -9,7 +9,7 @@ DEFAULT_MODEL = "deepseek-v4-pro"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 
 DATASET_NAME = "persona_controlled_deepseek_triple_agent_ja"
-SCHEMA_VERSION = "11.0"
+SCHEMA_VERSION = "12.0"
 
 
 @dataclass

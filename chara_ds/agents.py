@@ -2,81 +2,59 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from openai import OpenAI
 
-from .api_client import call_deepseek_json, call_deepseek_text
+from .api_client import call_deepseek_json, call_deepseek_tool
 from .config import PromptBundle
 
 
-# Marker labels expected from the actor's plain-text output. Order matters for
-# rendering only — parsing is order-agnostic.
-ACTOR_MARKERS: List[Tuple[str, str]] = [
-    ("thinking_trace_ja", "思考"),
-    ("character_thought", "内心"),
-    ("physical_action", "行動"),
-    ("public_utterance", "発話"),
-    ("subtext", "潜在"),
-]
-
-_ACTOR_MARKER_LABELS = {label: key for key, label in ACTOR_MARKERS}
-# Match a section header. Tolerant of:
-#   [思考]   【思考】   [思考]:   [思考]：
-#   **思考**   **思考：**
-#   ### 思考   ## 思考
-#   思考:   思考：   （単独行）
-# Header label and any decoration must be alone on its own line.
-_ACTOR_SECTION_RE = re.compile(
-    r"^[ \t\u3000]*"
-    r"(?:[#＃]{1,6}[ \t\u3000]*)?"          # optional markdown heading
-    r"(?:[\*＊]{1,3}[ \t\u3000]*)?"          # optional bold open
-    r"(?:[\[【［][ \t\u3000]*)?"             # optional bracket open
-    r"(?P<label>思考|内心|行動|発話|潜在)"
-    r"(?:[ \t\u3000]*[\]\】］])?"            # optional bracket close
-    r"(?:[ \t\u3000]*[:：])?"                # optional colon (inside bold)
-    r"(?:[ \t\u3000]*[\*＊]{1,3})?"          # optional bold close
-    r"[ \t\u3000]*[:：]?[ \t\u3000]*$",      # optional colon (outside bold)
-    re.MULTILINE,
+# JSON Schema for the actor tool. Intentionally flat: every field is a free-text
+# string. We rely on the API-enforced `tools` contract to guarantee that the
+# fields are always present, instead of begging the model to follow a marker
+# format in plain text.
+ACTOR_TOOL_NAME = "submit_actor_turn"
+ACTOR_TOOL_DESCRIPTION = (
+    "キャラクターの次の1ターンを提出する。"
+    "思考・内心・行動・発話・潜在の各フィールドはすべて日本語のフリーテキスト。"
 )
-
-
-def parse_actor_markers(text: str) -> Dict[str, str]:
-    """Parse the marker-format actor output into a dict keyed by field name.
-
-    Unknown labels are ignored. Missing sections are left absent (caller decides
-    what's mandatory).
-    """
-    if not isinstance(text, str):
-        return {}
-
-    # Strip a surrounding markdown code fence if the model wrapped the output.
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        # remove the first fence line
-        first_nl = stripped.find("\n")
-        if first_nl != -1:
-            stripped = stripped[first_nl + 1 :]
-        if stripped.rstrip().endswith("```"):
-            stripped = stripped.rstrip()[: -3]
-
-    matches = list(_ACTOR_SECTION_RE.finditer(stripped))
-    if not matches:
-        return {}
-
-    result: Dict[str, str] = {}
-    for i, m in enumerate(matches):
-        label = m.group("label").strip()
-        key = _ACTOR_MARKER_LABELS.get(label)
-        if key is None:
-            continue
-        body_start = m.end()
-        body_end = matches[i + 1].start() if i + 1 < len(matches) else len(stripped)
-        body = stripped[body_start:body_end].strip()
-        result[key] = body
-
-    return result
+ACTOR_TOOL_PARAMETERS: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "thinking_trace_ja": {
+            "type": "string",
+            "description": "キャラクター本人の日本語の短い思考過程（状況理解・葛藤・選択理由）。",
+        },
+        "character_thought": {
+            "type": "string",
+            "description": "キャラクター本人の自然な内心。",
+        },
+        "physical_action": {
+            "type": "string",
+            "description": (
+                "目に見える身体行動・表情・視線・接触・攻撃・防御・痛みへの反応などを"
+                "1〜3文の自然な日本語で書く。何もしない場合は『特に動かない。』のように短く書く。"
+            ),
+        },
+        "public_utterance": {
+            "type": "string",
+            "description": "実際に相手へ言うセリフ本文。鉤括弧で囲まない。空文字は不可。",
+        },
+        "subtext": {
+            "type": "string",
+            "description": "発話の裏にある本心、相手に伝わらない含意。",
+        },
+    },
+    "required": [
+        "thinking_trace_ja",
+        "character_thought",
+        "physical_action",
+        "public_utterance",
+        "subtext",
+    ],
+    "additionalProperties": False,
+}
 
 
 def validate_persona_output(obj: Dict[str, Any]) -> bool:
@@ -231,40 +209,41 @@ def call_actor(
         "public_event": turn_control.get("public_event"),
         "public_timeline": public_timeline,
         "instruction": (
-            "speaker の次の1ターンだけを、指定されたマーカー形式（[思考]/[内心]/[行動]/[発話]/[潜在]）で生成する。"
-            "json は出さない。"
+            f"speaker {speaker} の次の1ターンだけを、関数 {ACTOR_TOOL_NAME} を呼び出すことで提出する。"
+            "通常のメッセージ本文には何も書かない。必ず関数呼び出しで返す。"
             "public_timeline の visible_action が自分に向けられている場合は自然に反応する。"
         ),
     }
 
     actor_prompt = prompts.actor.replace("__SPEAKER__", speaker)
 
-    text, reasoning, usage, raw = call_deepseek_text(
+    args, reasoning, usage, raw = call_deepseek_tool(
         client,
         model=model,
         system_prompt=actor_prompt,
         user_payload=payload,
+        tool_name=ACTOR_TOOL_NAME,
+        tool_description=ACTOR_TOOL_DESCRIPTION,
+        tool_parameters=ACTOR_TOOL_PARAMETERS,
         max_tokens=max_tokens,
         reasoning_effort=reasoning_effort,
         thinking_enabled=thinking_enabled,
     )
 
-    fields = parse_actor_markers(text)
-
     parsed: Dict[str, Any] = {
         "speaker": speaker,
-        "thinking_trace_ja": fields.get("thinking_trace_ja", ""),
-        "character_thought": fields.get("character_thought", ""),
-        "physical_action": fields.get("physical_action", ""),
-        "public_utterance": fields.get("public_utterance", ""),
-        "subtext": fields.get("subtext", ""),
+        "thinking_trace_ja": args.get("thinking_trace_ja", "") or "",
+        "character_thought": args.get("character_thought", "") or "",
+        "physical_action": args.get("physical_action", "") or "",
+        "public_utterance": args.get("public_utterance", "") or "",
+        "subtext": args.get("subtext", "") or "",
     }
 
     if not validate_actor_output(parsed, speaker):
         snippet = (raw or "")[:200].replace("\n", "\\n")
         raise ValueError(
             f"invalid actor output for speaker {speaker} "
-            f"(parsed_keys={sorted(fields.keys())}, raw_len={len(raw)}, "
+            f"(arg_keys={sorted(args.keys())}, raw_len={len(raw)}, "
             f"raw_head={snippet!r})"
         )
 

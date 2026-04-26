@@ -241,6 +241,127 @@ def call_deepseek_text(
     return raw_content, reasoning_content, usage, raw_content
 
 
+def call_deepseek_tool(
+    client: OpenAI,
+    *,
+    model: str,
+    system_prompt: str,
+    user_payload: Dict[str, Any],
+    tool_name: str,
+    tool_description: str,
+    tool_parameters: Dict[str, Any],
+    max_tokens: Optional[int],
+    reasoning_effort: str,
+    thinking_enabled: bool,
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
+    """Force the model to emit the response as a function/tool call.
+
+    Returns (parsed_arguments, reasoning_content, usage, raw_arguments_json).
+
+    DeepSeek (OpenAI-compatible) accepts `tools` + `tool_choice`. Forcing a
+    specific tool eliminates whole classes of format-violation bugs because
+    the API itself rejects/coerces malformed arguments.
+    """
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": json.dumps(user_payload, ensure_ascii=False),
+        },
+    ]
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": tool_name,
+                "description": tool_description,
+                "parameters": tool_parameters,
+            },
+        }
+    ]
+
+    kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": {"type": "function", "function": {"name": tool_name}},
+    }
+
+    if max_tokens is not None and max_tokens > 0:
+        kwargs["max_tokens"] = max_tokens
+
+    if thinking_enabled:
+        kwargs["reasoning_effort"] = reasoning_effort
+        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+    else:
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+
+    try:
+        response = client.chat.completions.create(**kwargs)
+    except TypeError:
+        kwargs.pop("reasoning_effort", None)
+        extra_body = kwargs.get("extra_body") or {}
+        if thinking_enabled:
+            extra_body["reasoning_effort"] = reasoning_effort
+        kwargs["extra_body"] = extra_body
+        response = client.chat.completions.create(**kwargs)
+
+    choice = response.choices[0]
+    msg = choice.message
+    reasoning_content = get_reasoning_content(msg)
+    usage = usage_to_dict(getattr(response, "usage", None))
+    finish_reason = getattr(choice, "finish_reason", None)
+
+    tool_calls = getattr(msg, "tool_calls", None) or []
+    raw_args = ""
+
+    for tc in tool_calls:
+        fn = getattr(tc, "function", None)
+        if fn is None:
+            continue
+        name = getattr(fn, "name", None)
+        args = getattr(fn, "arguments", None) or ""
+        if name == tool_name and args.strip():
+            raw_args = args
+            break
+
+    # Fallback: if the model emitted plain content / put the JSON into reasoning,
+    # try to recover. Same defensive fallback we use for json/text variants.
+    if not raw_args:
+        body = (msg.content or "").strip()
+        if body:
+            try:
+                parsed = parse_json(body)
+                return parsed, reasoning_content, usage, body
+            except Exception:
+                pass
+        if reasoning_content and reasoning_content.strip():
+            try:
+                parsed = parse_json(reasoning_content)
+                return parsed, reasoning_content, usage, reasoning_content
+            except Exception:
+                pass
+
+        raise ValueError(
+            "empty tool_call arguments "
+            f"(finish_reason={finish_reason!r}, "
+            f"tool_calls={len(tool_calls)}, "
+            f"has_reasoning={reasoning_content is not None}, "
+            f"reasoning_len={len(reasoning_content) if reasoning_content else 0}, "
+            f"usage={usage})"
+        )
+
+    parsed = parse_json(raw_args)
+    return parsed, reasoning_content, usage, raw_args
+
+
 def call_with_retries(
     fn,
     *,
