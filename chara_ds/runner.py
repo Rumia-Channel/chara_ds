@@ -7,10 +7,11 @@ import json
 import math
 import random
 import sys
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from tqdm import tqdm
 
@@ -223,6 +224,16 @@ def parse_args() -> argparse.Namespace:
         help="Situations per producer API call.",
     )
     parser.add_argument(
+        "--situation-target",
+        type=int,
+        default=0,
+        help=(
+            "Stop the producer once format.txt has this many lines (after dedup). "
+            "0 = no fixed cap; the producer keeps generating in parallel until "
+            "either dialogue generation finishes or --situation-max-iterations is hit."
+        ),
+    )
+    parser.add_argument(
         "--situation-max-iterations",
         type=int,
         default=200,
@@ -283,11 +294,12 @@ def main() -> None:
         initial_pool, math.ceil(total_requested / args.variations_per_line)
     )
 
-    auto_gen_active = (
-        args.auto_generate_situations and needed_situations > initial_pool
-    )
+    auto_gen_active = bool(args.auto_generate_situations)
 
-    if needed_situations > initial_pool and not args.auto_generate_situations:
+    if (
+        not args.auto_generate_situations
+        and needed_situations > initial_pool
+    ):
         capped_total = initial_pool * args.variations_per_line
         print(
             json.dumps(
@@ -321,6 +333,9 @@ def main() -> None:
     turn_controller_thinking_enabled = args.enable_turn_controller_thinking
     actor_thinking_enabled = not args.disable_actor_thinking
 
+    producer_stop_event: Optional[threading.Event] = None
+    producer_thread: Optional[threading.Thread] = None
+
     if auto_gen_active:
         seeds: List[str] = list(args.situation_seed or [])
         if args.situation_seed_file:
@@ -330,15 +345,24 @@ def main() -> None:
                 if s and not s.startswith("#"):
                     seeds.append(s)
         if not seeds:
-            # Inspire from existing format.txt content.
             seeds = [pl.text for pl in persona_lines[:8]]
 
-        start_background_producer(
+        producer_stop_event = threading.Event()
+
+        # If user gave an explicit target, honour it; otherwise let the
+        # producer run alongside dialogue generation until we set the
+        # stop event after all conversations finish.
+        target_count = (
+            args.situation_target if args.situation_target > 0 else None
+        )
+
+        producer_thread = start_background_producer(
             buffer=persona_buffer,
             out_path=args.persona_txt,
             prompt_file=args.situation_prompt_file,
             seeds=seeds,
-            target_count=needed_situations,
+            target_count=target_count,
+            stop_event=producer_stop_event,
             batch_size=args.situation_batch_size,
             max_iterations=args.situation_max_iterations,
             model=args.situation_model,
@@ -523,6 +547,11 @@ def main() -> None:
 
                     if args.sleep > 0:
                         time.sleep(args.sleep)
+
+    if producer_stop_event is not None:
+        producer_stop_event.set()
+    if producer_thread is not None:
+        producer_thread.join(timeout=120)
 
     done_event = {
         "event": "done",

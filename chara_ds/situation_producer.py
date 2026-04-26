@@ -36,7 +36,8 @@ def start_background_producer(
     out_path: str,
     prompt_file: str,
     seeds: List[str],
-    target_count: int,
+    target_count: Optional[int],
+    stop_event: Optional[threading.Event] = None,
     batch_size: int = 8,
     max_iterations: int = 200,
     model: str = SITUATION_GEN_MODEL_DEFAULT,
@@ -50,14 +51,15 @@ def start_background_producer(
     errors_out: Optional[str] = None,
     existing_sample: int = 12,
 ) -> threading.Thread:
-    """Spawn a daemon thread that fills ``buffer`` up to ``target_count``.
+    """Spawn a daemon thread that grows ``buffer`` with new situations.
 
-    The thread:
-      * appends each new (deduped) situation to ``out_path`` (format.txt)
-        and to ``buffer`` so blocked workers wake up immediately;
-      * stops when ``len(buffer) >= target_count`` or after ``max_iterations``;
-      * always calls :meth:`PersonaBuffer.mark_finished` on exit so workers
-        waiting for impossible indices fail fast instead of hanging.
+    Stop conditions (whichever fires first):
+      * ``len(buffer) >= target_count`` (when ``target_count`` is not None);
+      * ``stop_event.is_set()`` (caller signals "we're done, stop generating");
+      * ``iteration >= max_iterations`` (safety cap).
+
+    On exit always calls :meth:`PersonaBuffer.mark_finished` so any blocked
+    workers fail fast instead of hanging.
     """
     system_prompt = read_text(prompt_file).strip()
     client = make_client(base_url)
@@ -83,7 +85,11 @@ def start_background_producer(
             })
 
             iteration = 0
-            while len(buffer) < target_count and iteration < max_iterations:
+            while iteration < max_iterations:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                if target_count is not None and len(buffer) >= target_count:
+                    break
                 iteration += 1
                 snap = buffer.snapshot()
                 existing_texts = [item.text for item in snap]
@@ -144,7 +150,10 @@ def start_background_producer(
                             sha256=h,
                         )
                     )
-                    if len(buffer) + len(new_lines) >= target_count:
+                    if (
+                        target_count is not None
+                        and len(buffer) + len(new_lines) >= target_count
+                    ):
                         break
 
                 if new_lines:
