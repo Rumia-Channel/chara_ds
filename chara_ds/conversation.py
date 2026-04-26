@@ -82,16 +82,31 @@ def generate_one_conversation(
     retries: int,
     retry_base_sleep: float,
     cache_dir: Optional[str] = None,
+    existing_record: Optional[Dict[str, Any]] = None,
+    target_turns_override: Optional[int] = None,
 ) -> Dict[str, Any]:
     rng = random.Random(seed + conversation_index * 1009 + variation * 9173)
-    target_turns = rng.randint(min_turns, max_turns)
-    conversation_id = f"persona_deepseek_triple_ja_{conversation_index:08d}"
-
-    source_info = build_source_info(
-        persona_txt_path=persona_txt_path,
-        persona_line=persona_line,
-        variation=variation,
+    target_turns = max(rng.randint(min_turns, max_turns), target_turns_override or 0)
+    conversation_id = (
+        str(existing_record.get("id") or existing_record.get("conversation_id"))
+        if existing_record is not None
+        else f"persona_deepseek_triple_ja_{conversation_index:08d}"
     )
+
+    if existing_record is not None:
+        source_info = dict(existing_record.get("source") or {})
+        if not source_info:
+            source_info = build_source_info(
+                persona_txt_path=persona_txt_path,
+                persona_line=persona_line,
+                variation=variation,
+            )
+    else:
+        source_info = build_source_info(
+            persona_txt_path=persona_txt_path,
+            persona_line=persona_line,
+            variation=variation,
+        )
 
     # ----- partial cache: signature & resume -----
     cache_signature = compute_signature(
@@ -129,7 +144,44 @@ def generate_one_conversation(
         if c is not None and c.get("signature") == cache_signature:
             cached = c
 
-    if cached is not None:
+    if existing_record is not None:
+        persona_generation = existing_record.get("persona_generation") or {}
+        persona_content = persona_generation.get("controller_content") or {
+            "persona_seed": existing_record.get("persona_seed") or {}
+        }
+        persona_reasoning = persona_generation.get("controller_reasoning_content")
+        persona_usage = persona_generation.get("usage") or {}
+        persona_raw = persona_generation.get("raw_content") or ""
+        persona_seed = existing_record.get("persona_seed") or persona_content.get("persona_seed") or {}
+        public_timeline = list(existing_record.get("public_timeline") or [])
+        turns = list(existing_record.get("turns") or [])
+        usage_summary = existing_record.get("usage") or {
+            "persona_controller": persona_usage,
+            "turn_controller": [],
+            "actors": [],
+        }
+        start_turn = len(turns) + 1
+        early_end = False
+
+        progress_update(
+            status="resuming_existing_record",
+            conversation_id=conversation_id,
+            current={
+                "stage": "resuming_existing_record",
+                "conversation_id": conversation_id,
+                "conversation_index": conversation_index,
+                "completed_turns": len(turns),
+                "target_turns": target_turns,
+            },
+            latest_public_timeline=public_timeline,
+            event={
+                "type": "resuming_existing_record",
+                "conversation_id": conversation_id,
+                "completed_turns": len(turns),
+                "target_turns": target_turns,
+            },
+        )
+    elif cached is not None:
         persona_content = cached["persona_content"]
         persona_reasoning = cached.get("persona_reasoning")
         persona_usage = cached.get("persona_usage") or {}
@@ -506,7 +558,7 @@ def generate_one_conversation(
         "public_transcript": public_transcript,
         "usage": usage_summary,
         "hashes": {
-            "source_sha256": persona_line.sha256,
+            "source_sha256": source_info.get("sha256") or persona_line.sha256,
             "persona_seed_sha256": sha256_json(persona_seed),
             "public_timeline_sha256": sha256_json(public_timeline),
             "conversation_sha256": sha256_json(

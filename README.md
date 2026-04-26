@@ -144,6 +144,37 @@ uv run python main.py `
   --progress-server
 ```
 
+## Finishing short conversations
+
+If an existing JSONL contains conversations that ended before a desired turn
+count, continue only those records in-place with the same conversation IDs:
+
+```powershell
+uv run python main.py `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues.jsonl `
+  --prompt-dir .\prompts `
+  --finish-min-turns 8 `
+  --max-turns 12 `
+  --workers 4
+```
+
+Records whose `actual_turns` / `public_timeline` length is below
+`--finish-min-turns` are resumed from their saved `persona_seed` and timeline,
+then the JSONL is rewritten with the extended records.
+
+To only detect short conversations without calling the API or rewriting the
+JSONL:
+
+```powershell
+uv run python main.py `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues.jsonl `
+  --finish-min-turns 8 `
+  --finish-dry-run `
+  --finish-dry-run-format lines
+```
+
 ## Notes
 
 - `public_timeline` contains both utterances and `visible_action`.

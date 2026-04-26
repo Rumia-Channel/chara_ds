@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import random
+import re
 import sys
 import threading
 import time
@@ -41,6 +43,9 @@ from .situation_gen import SITUATION_GEN_MODEL_DEFAULT
 from .situation_producer import start_background_producer
 
 
+_CID_INDEX_RE = re.compile(r"persona_deepseek_triple_ja_(\d+)")
+
+
 def pick_persona_line_for_index(
     *,
     idx0: int,
@@ -63,6 +68,72 @@ def pick_persona_line_for_index(
             f"buffer size={len(buffer)}, finished={buffer.is_finished()}"
         )
     return persona_line, variation
+
+
+def conversation_index_from_id(conversation_id: str) -> Optional[int]:
+    m = _CID_INDEX_RE.search(conversation_id)
+    if not m:
+        return None
+    try:
+        value = int(m.group(1))
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def actual_turn_count(record: Dict[str, Any]) -> int:
+    counts: List[int] = []
+    cfg = record.get("generation_config") or {}
+    value = cfg.get("actual_turns")
+    if isinstance(value, int):
+        counts.append(value)
+    timeline = record.get("public_timeline")
+    if isinstance(timeline, list):
+        counts.append(len(timeline))
+    turns = record.get("turns")
+    if isinstance(turns, list):
+        counts.append(len(turns))
+    return max(counts) if counts else 0
+
+
+def read_jsonl_records(path: str) -> List[Dict[str, Any]]:
+    if not os.path.exists(path):
+        return []
+    records: List[Dict[str, Any]] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line_number, line in enumerate(f, start=1):
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                obj = json.loads(text)
+            except Exception as e:
+                raise ValueError(f"invalid jsonl at {path}:{line_number}: {e}") from e
+            if isinstance(obj, dict):
+                records.append(obj)
+    return records
+
+
+def rewrite_jsonl_records(path: str, records: List[Dict[str, Any]]) -> None:
+    tmp_path = path + ".rewrite.tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        for record in records:
+            f.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+    os.replace(tmp_path, path)
+
+
+def persona_line_from_record(record: Dict[str, Any], persona_txt_path: str) -> PersonaLine:
+    source = record.get("source") or {}
+    text = source.get("text")
+    if not isinstance(text, str):
+        text = ""
+    line_number = source.get("line_number")
+    if not isinstance(line_number, int):
+        line_number = 0
+    sha = source.get("sha256")
+    if not isinstance(sha, str) or not sha:
+        sha = sha256_text(text)
+    return PersonaLine(line_number=line_number, text=text, sha256=sha)
 
 
 def run_one_conversation_task(
@@ -167,6 +238,103 @@ def run_one_conversation_task(
         }
 
 
+def finish_one_conversation_task(
+    *,
+    record: Dict[str, Any],
+    record_position: int,
+    args: argparse.Namespace,
+    prompts: PromptBundle,
+    errors_out: str,
+    persona_thinking_enabled: bool,
+    turn_controller_thinking_enabled: bool,
+    actor_thinking_enabled: bool,
+    cache_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    conversation_id = str(record.get("id") or record.get("conversation_id") or "")
+    conversation_index = conversation_index_from_id(conversation_id)
+    if conversation_index is None:
+        return {
+            "ok": False,
+            "record_position": record_position,
+            "record": None,
+            "error": {
+                "error": f"cannot parse conversation index from id: {conversation_id!r}",
+            },
+        }
+
+    source = record.get("source") or {}
+    variation = source.get("variation")
+    if not isinstance(variation, int):
+        variation = (record.get("generation_config") or {}).get("variation")
+    if not isinstance(variation, int):
+        variation = 1
+
+    persona_line = persona_line_from_record(record, args.persona_txt)
+    client = get_thread_client(args.base_url)
+
+    try:
+        extended = generate_one_conversation(
+            client=client,
+            prompts=prompts,
+            model=args.model,
+            persona_txt_path=args.persona_txt,
+            persona_line=persona_line,
+            conversation_index=conversation_index,
+            variation=variation,
+            min_turns=args.finish_min_turns,
+            max_turns=max(args.max_turns, args.finish_min_turns),
+            seed=args.seed,
+            reasoning_effort=args.reasoning_effort,
+            persona_thinking_enabled=persona_thinking_enabled,
+            turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+            actor_thinking_enabled=actor_thinking_enabled,
+            controller_temperature=args.controller_temperature,
+            controller_top_p=args.controller_top_p,
+            persona_max_tokens=args.persona_max_tokens,
+            controller_max_tokens=args.controller_max_tokens,
+            actor_max_tokens=args.actor_max_tokens,
+            keep_raw_content=args.keep_raw_content,
+            errors_out=errors_out,
+            retries=args.retries,
+            retry_base_sleep=args.retry_base_sleep,
+            cache_dir=cache_dir,
+            existing_record=record,
+            target_turns_override=args.finish_min_turns,
+        )
+        return {
+            "ok": True,
+            "record_position": record_position,
+            "record": extended,
+            "error": None,
+        }
+    except Exception as e:
+        err = {
+            "created_at": now_iso(),
+            "stage": "finish_conversation",
+            "conversation_id": conversation_id,
+            "record_position": record_position,
+            "error_type": type(e).__name__,
+            "error": str(e),
+            "traceback": traceback.format_exc(limit=10),
+        }
+        append_jsonl(errors_out, err)
+        progress_update(
+            status="error",
+            error=err,
+            event={
+                "type": "finish_conversation_error",
+                "conversation_id": conversation_id,
+                "error": str(e),
+            },
+        )
+        return {
+            "ok": False,
+            "record_position": record_position,
+            "record": None,
+            "error": err,
+        }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate persona-controlled Japanese multi-agent dialogue JSONL with DeepSeek."
@@ -187,6 +355,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-turns", type=int, default=6)
     parser.add_argument("--max-turns", type=int, default=12)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--finish-min-turns",
+        type=int,
+        default=0,
+        help=(
+            "Finish existing records in --out whose actual_turns are below this "
+            "count. Matching conversations are continued with the same id and "
+            "rewritten in-place in the jsonl instead of creating new ids. "
+            "0 disables finish mode."
+        ),
+    )
+    parser.add_argument(
+        "--finish-dry-run",
+        action="store_true",
+        help=(
+            "With --finish-min-turns, only detect and report matching short "
+            "records. Do not call the API and do not rewrite the jsonl."
+        ),
+    )
+    parser.add_argument(
+        "--finish-dry-run-format",
+        choices=["json", "lines", "ids"],
+        default="json",
+        help=(
+            "Output format for --finish-dry-run. json = one summary object, "
+            "lines = one detected record per line with details, ids = one id per line."
+        ),
+    )
 
     parser.add_argument("--reasoning-effort", choices=["high", "max"], default="high")
 
@@ -319,6 +515,9 @@ def main() -> None:
     if args.workers <= 0:
         raise ValueError("--workers must be positive")
 
+    if args.finish_min_turns < 0:
+        raise ValueError("--finish-min-turns must be >= 0")
+
     persona_lines = load_persona_lines(args.persona_txt)
     prompts = load_prompts(args.prompt_dir)
 
@@ -379,13 +578,279 @@ def main() -> None:
         cache_dir = args.turn_cache_dir or (args.out + ".cache")
         ensure_cache_dir(cache_dir)
 
-    if already_done >= total_requested:
-        print(f"nothing to do: {already_done} >= {total_requested}", file=sys.stderr)
-        return
-
     persona_thinking_enabled = not args.disable_persona_thinking
     turn_controller_thinking_enabled = args.enable_turn_controller_thinking
     actor_thinking_enabled = not args.disable_actor_thinking
+
+    if args.finish_min_turns > 0:
+        records = read_jsonl_records(args.out)
+        targets = [
+            (pos, rec)
+            for pos, rec in enumerate(records)
+            if actual_turn_count(rec) < args.finish_min_turns
+        ]
+
+        if args.finish_dry_run:
+            report_items = []
+            for pos, rec in targets:
+                cfg = rec.get("generation_config") or {}
+                report_items.append(
+                    {
+                        "record_position": pos,
+                        "id": rec.get("id") or rec.get("conversation_id"),
+                        "actual_turns": actual_turn_count(rec),
+                        "target_turns": cfg.get("target_turns"),
+                        "source_line_number": (rec.get("source") or {}).get("line_number"),
+                        "variation": (rec.get("source") or {}).get("variation"),
+                    }
+                )
+            if args.finish_dry_run_format == "ids":
+                for item in report_items:
+                    print(item["id"], flush=True)
+                print(
+                    json.dumps(
+                        {
+                            "event": "finish_dry_run_summary",
+                            "out": args.out,
+                            "finish_min_turns": args.finish_min_turns,
+                            "records": len(records),
+                            "targets": len(targets),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            elif args.finish_dry_run_format == "lines":
+                for item in report_items:
+                    print(
+                        json.dumps(
+                            {
+                                "id": item["id"],
+                                "actual_turns": item["actual_turns"],
+                                "target_turns": item["target_turns"],
+                                "record_position": item["record_position"],
+                                "source_line_number": item["source_line_number"],
+                                "variation": item["variation"],
+                            },
+                            ensure_ascii=False,
+                        ),
+                        flush=True,
+                    )
+                print(
+                    json.dumps(
+                        {
+                            "event": "finish_dry_run_summary",
+                            "out": args.out,
+                            "finish_min_turns": args.finish_min_turns,
+                            "records": len(records),
+                            "targets": len(targets),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print(
+                    json.dumps(
+                        {
+                            "event": "finish_dry_run",
+                            "out": args.out,
+                            "finish_min_turns": args.finish_min_turns,
+                            "records": len(records),
+                            "targets": len(targets),
+                            "items": report_items,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+            return
+
+        if args.progress_server:
+            start_progress_server(args.progress_host, args.progress_port)
+            url = f"http://{args.progress_host}:{args.progress_port}"
+            print(
+                json.dumps(
+                    {
+                        "event": "progress_server_started",
+                        "url": url,
+                        "urls": [url],
+                        "bind": args.progress_host,
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+
+        start_event = {
+            "event": "finish_start",
+            "out": args.out,
+            "errors_out": errors_out,
+            "finish_min_turns": args.finish_min_turns,
+            "records": len(records),
+            "targets": len(targets),
+            "workers": args.workers,
+            "model": args.model,
+        }
+        print(json.dumps(start_event, ensure_ascii=False), file=sys.stderr, flush=True)
+        progress_update(
+            status="finish_started",
+            summary={
+                "written": 0,
+                "total_requested": len(targets),
+                "workers": args.workers,
+                "out": args.out,
+            },
+            event=start_event,
+        )
+
+        if not targets:
+            print(
+                json.dumps(
+                    {
+                        "event": "finish_nothing_to_do",
+                        "finish_min_turns": args.finish_min_turns,
+                        "records": len(records),
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+
+        replacements: Dict[int, Dict[str, Any]] = {}
+        finished = 0
+
+        if args.workers <= 1:
+            get_thread_client(args.base_url)
+            with tqdm(total=len(targets)) as pbar:
+                for pos, rec in targets:
+                    if is_stopped():
+                        break
+                    wait_if_paused()
+                    result = finish_one_conversation_task(
+                        record=rec,
+                        record_position=pos,
+                        args=args,
+                        prompts=prompts,
+                        errors_out=errors_out,
+                        persona_thinking_enabled=persona_thinking_enabled,
+                        turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+                        actor_thinking_enabled=actor_thinking_enabled,
+                        cache_dir=cache_dir,
+                    )
+                    if result["ok"]:
+                        replacements[pos] = result["record"]
+                        finished += 1
+                        if cache_dir:
+                            delete_turn_cache(cache_dir, result["record"]["id"])
+                    else:
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "finish_task_failed",
+                                    "record_position": result["record_position"],
+                                    "error": result["error"]["error"],
+                                },
+                                ensure_ascii=False,
+                            ),
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                    progress_update(
+                        summary={
+                            "written": finished,
+                            "total_requested": len(targets),
+                            "workers": args.workers,
+                            "out": args.out,
+                        }
+                    )
+                    pbar.update(1)
+                    if args.sleep > 0:
+                        time.sleep(args.sleep)
+        else:
+            with tqdm(total=len(targets)) as pbar:
+                with ThreadPoolExecutor(max_workers=args.workers) as executor:
+                    futures = [
+                        executor.submit(
+                            finish_one_conversation_task,
+                            record=rec,
+                            record_position=pos,
+                            args=args,
+                            prompts=prompts,
+                            errors_out=errors_out,
+                            persona_thinking_enabled=persona_thinking_enabled,
+                            turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+                            actor_thinking_enabled=actor_thinking_enabled,
+                            cache_dir=cache_dir,
+                        )
+                        for pos, rec in targets
+                    ]
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result["ok"]:
+                            replacements[result["record_position"]] = result["record"]
+                            finished += 1
+                            if cache_dir:
+                                delete_turn_cache(cache_dir, result["record"]["id"])
+                        else:
+                            print(
+                                json.dumps(
+                                    {
+                                        "event": "finish_task_failed",
+                                        "record_position": result["record_position"],
+                                        "error": result["error"]["error"],
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                        progress_update(
+                            summary={
+                                "written": finished,
+                                "total_requested": len(targets),
+                                "workers": args.workers,
+                                "out": args.out,
+                            }
+                        )
+                        pbar.update(1)
+                        if args.sleep > 0:
+                            time.sleep(args.sleep)
+
+        for pos, rec in replacements.items():
+            records[pos] = rec
+        rewrite_jsonl_records(args.out, records)
+        sort_jsonl_by_conversation_id(args.out)
+
+        done_event = {
+            "event": "finish_done",
+            "finished": finished,
+            "targets": len(targets),
+            "out": args.out,
+            "errors_out": errors_out,
+        }
+        print(json.dumps(done_event, ensure_ascii=False), file=sys.stderr, flush=True)
+        progress_update(
+            status="finish_done",
+            summary={
+                "written": finished,
+                "total_requested": len(targets),
+                "workers": args.workers,
+                "out": args.out,
+            },
+            event=done_event,
+        )
+        return
+
+    if already_done >= total_requested:
+        print(f"nothing to do: {already_done} >= {total_requested}", file=sys.stderr)
+        return
 
     producer_stop_event: Optional[threading.Event] = None
     producer_thread: Optional[threading.Thread] = None

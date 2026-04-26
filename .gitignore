@@ -10,6 +10,6 @@ wheels/
 .venv
 
 *.jsonl
-
+*.back
 *.txt
 !/prompts/*.txt
