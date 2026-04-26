@@ -1048,7 +1048,7 @@ function renderDetail(state) {
 }
 
 async function refresh() {
-  if (paused) return;
+  if (uiPaused) return;
   try {
     const res = await fetch("/state?t=" + Date.now());
     if (!res.ok) return;
