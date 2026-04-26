@@ -21,6 +21,7 @@ from .persona_buffer import PersonaBuffer
 from .progress import safe_append_line as append_line
 from .situation_gen import (
     EMOTION_VOCAB,
+    SETTING_VOCAB,
     SITUATION_GEN_MODEL_DEFAULT,
     TONE_VOCAB,
     call_generator,
@@ -102,6 +103,11 @@ def start_background_producer(
                 existing_texts = [item.text for item in snap]
                 focus = rng.sample(EMOTION_VOCAB, k=min(4, len(EMOTION_VOCAB)))
                 tone_focus = rng.sample(TONE_VOCAB, k=min(4, len(TONE_VOCAB)))
+                # Ensure non-realism settings are always demanded so fantasy /
+                # sci-fi / horror / mythological etc. show up in every batch.
+                non_realism = [s for s in SETTING_VOCAB if s != "modern_realism"]
+                setting_focus = rng.sample(non_realism, k=min(3, len(non_realism)))
+                setting_focus.append(rng.choice(SETTING_VOCAB))
                 existing_examples = (
                     rng.sample(
                         existing_texts,
@@ -122,6 +128,7 @@ def start_background_producer(
                             batch_size=batch_size,
                             requested_emotion_focus=focus,
                             requested_tone_focus=tone_focus,
+                            requested_setting_focus=setting_focus,
                             temperature=temperature,
                             top_p=top_p,
                             max_tokens=max_tokens,
@@ -133,6 +140,7 @@ def start_background_producer(
                             "iteration": iteration,
                             "focus": focus,
                             "tone_focus": tone_focus,
+                            "setting_focus": setting_focus,
                         },
                         retry_base_sleep=retry_base_sleep,
                     )
@@ -177,6 +185,7 @@ def start_background_producer(
                     "target": target_count,
                     "focus": focus,
                     "tone_focus": tone_focus,
+                    "setting_focus": setting_focus,
                 })
         finally:
             buffer.mark_finished()

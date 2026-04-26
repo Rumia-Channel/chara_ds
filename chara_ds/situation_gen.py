@@ -55,6 +55,34 @@ TONE_VOCAB = [
     "quiet_melancholy",       # 静かな寂しさ・諦め
 ]
 
+# 世界観 / 舞台設定。modern_realism に偏らないようローテートする。
+SETTING_VOCAB = [
+    "modern_realism",          # 現代日本のリアル (家・学校・職場・街)
+    "school_realism",          # 中高大学などの校内・部活・教室
+    "workplace_realism",       # オフィス・接客業・夜の店・現場仕事
+    "family_domestic",         # 家庭内・親戚・実家・帰省
+    "online_community",        # SNS・ゲーム・配信・掲示板の人間関係
+    "fantasy_high",            # 王道剣と魔法のハイファンタジー
+    "fantasy_dark",            # ダークファンタジー・血なまぐさい戦場や呪い
+    "fantasy_cozy_villain",    # 魔王軍幹部のほんわかしてるけど物騒な日常
+    "monster_pov",             # 魔物・モンスター同士の会話 (人間視点ではない)
+    "hero_party_strife",       # 勇者パーティー内のぎすぎす・不和・裏切り疑惑
+    "magic_academy",           # 魔法学校・寮・実技授業・落第寸前の学生
+    "magic_research_lab",      # 女博士と助手の魔法談義、禁書研究、倫理ぎりぎりの実験
+    "isekai_transferred",      # 異世界転移・転生もの (現代知識と異世界の摩擦)
+    "sci_fi_space",            # 宇宙船・コロニー・宇宙海賊・AI と人間
+    "cyberpunk",               # 退廃的近未来都市・電脳・企業の暗部
+    "post_apocalypse",         # 文明崩壊後・サバイバル・配給・派閥抗争
+    "historical_japan",        # 江戸・戦国・幕末などの日本史的舞台
+    "wuxia_xianxia",           # 中華武侠・仙術・宗門の派閥・修行
+    "horror_occult",           # 怪談・心霊・カルト・呪い・閉鎖空間
+    "mythological",            # 神話・神々・精霊・人外と人間の交わり
+    "noir_crime",              # 探偵・裏社会・刑事・取り調べ
+    "military_war",            # 軍隊・前線・後方支援・戦友間の軋轢
+    "idol_entertainment",      # アイドル・声優・劇団・芸能裏方の修羅
+    "sports_competitive",      # 競技スポーツ・レギュラー争い・引退試合
+]
+
 SITUATION_TOOL_NAME = "submit_situations"
 SITUATION_TOOL_DESCRIPTION = (
     "新規ベースシチュエーションを N 件まとめて提出する。"
@@ -92,8 +120,16 @@ SITUATION_TOOL_PARAMETERS: Dict[str, Any] = {
                         ),
                         "enum": TONE_VOCAB,
                     },
+                    "setting": {
+                        "type": "string",
+                        "description": (
+                            "舞台設定 (世界観)。requested_setting_focus と整合させ、"
+                            "batch 内で必ず複数の setting を混ぜる。modern_realism に偏らせない。"
+                        ),
+                        "enum": SETTING_VOCAB,
+                    },
                 },
-                "required": ["text", "dominant_emotions", "tone"],
+                "required": ["text", "dominant_emotions", "tone", "setting"],
                 "additionalProperties": False,
             },
         }
@@ -149,6 +185,7 @@ def call_generator(
     batch_size: int,
     requested_emotion_focus: List[str],
     requested_tone_focus: List[str],
+    requested_setting_focus: List[str],
     temperature: float,
     top_p: float,
     max_tokens: Optional[int],
@@ -158,19 +195,22 @@ def call_generator(
         "instruction": (
             f"submit_situations を呼び出し、situations 配列に {batch_size} 件、"
             "互いに重複しない多様なシチュエーションを入れる。"
-            "requested_tone_focus に挙がったトーンは batch 内で必ずカバーし、"
+            "requested_tone_focus に挙がったトーンと requested_setting_focus に挙がった世界観は "
+            "batch 内で必ずカバーし、現代日本の現実 (modern_realism) ばかりに偏らせない。"
             "感動寄り・教訓寄りに偏らないこと。"
             "本文には何も書かない。"
         ),
         "seed_situations": seed_situations,
         "emotion_vocabulary": EMOTION_VOCAB,
         "tone_vocabulary": TONE_VOCAB,
+        "setting_vocabulary": SETTING_VOCAB,
     }
 
     payload = {
         "batch_size": batch_size,
         "requested_emotion_focus": requested_emotion_focus,
         "requested_tone_focus": requested_tone_focus,
+        "requested_setting_focus": requested_setting_focus,
         "existing_examples": existing_examples,
     }
 
@@ -204,6 +244,7 @@ def call_generator(
                 "text": normalize_text(text),
                 "dominant_emotions": it.get("dominant_emotions") or [],
                 "tone": it.get("tone") or "",
+                "setting": it.get("setting") or "",
             }
         )
     return out
@@ -292,6 +333,11 @@ def main() -> None:
         # Rotate emotion focus so subsequent batches diversify.
         focus = rng.sample(EMOTION_VOCAB, k=min(4, len(EMOTION_VOCAB)))
         tone_focus = rng.sample(TONE_VOCAB, k=min(4, len(TONE_VOCAB)))
+        # Always force a non-realism setting into every batch so fantasy /
+        # sci-fi / horror / etc. show up regularly even for short runs.
+        non_realism = [s for s in SETTING_VOCAB if s != "modern_realism"]
+        setting_focus = rng.sample(non_realism, k=min(3, len(non_realism)))
+        setting_focus.append(rng.choice(SETTING_VOCAB))
         existing_sample = (
             rng.sample(existing, k=min(args.existing_sample, len(existing)))
             if existing else []
@@ -308,6 +354,7 @@ def main() -> None:
                     batch_size=args.batch_size,
                     requested_emotion_focus=focus,
                     requested_tone_focus=tone_focus,
+                    requested_setting_focus=setting_focus,
                     temperature=args.temperature,
                     top_p=args.top_p,
                     max_tokens=args.max_tokens if args.max_tokens > 0 else None,
@@ -319,6 +366,7 @@ def main() -> None:
                     "iteration": iteration,
                     "focus": focus,
                     "tone_focus": tone_focus,
+                    "setting_focus": setting_focus,
                 },
                 retry_base_sleep=args.retry_base_sleep,
             )
@@ -355,6 +403,7 @@ def main() -> None:
                 "target": args.target,
                 "focus": focus,
                 "tone_focus": tone_focus,
+                "setting_focus": setting_focus,
             },
             ensure_ascii=False,
         ), file=sys.stderr)
