@@ -5,10 +5,21 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from .io_utils import clip_string, now_iso
+
+
+WEB_DIR = Path(__file__).parent / "web"
+
+STATIC_FILES: Dict[str, tuple[str, str]] = {
+    "/":           ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/style.css":  ("style.css",  "text/css; charset=utf-8"),
+    "/app.js":     ("app.js",     "application/javascript; charset=utf-8"),
+}
 
 
 PROGRESS_LOCK = threading.Lock()
@@ -113,94 +124,9 @@ def progress_update(
             PROGRESS_STATE["events"] = PROGRESS_STATE["events"][-300:]
 
 
-PROGRESS_HTML = r"""
-<!doctype html>
-<html lang="ja">
-<head>
-  <meta charset="utf-8">
-  <title>Dialogue Generation Progress</title>
-  <style>
-    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 20px; background: #f7f7f7; color: #222; }
-    h1 { font-size: 20px; margin-bottom: 8px; }
-    h2 { font-size: 16px; margin-top: 18px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .card { background: white; border: 1px solid #ddd; border-radius: 8px; padding: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
-    .status { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
-    pre { background: #111; color: #eee; padding: 10px; border-radius: 6px; overflow: auto; max-height: 420px; font-size: 12px; line-height: 1.35; }
-    .timeline { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 8px; max-height: 500px; overflow: auto; }
-    .msg { margin: 8px 0; padding: 8px; border-radius: 6px; background: #f0f0f0; }
-    .speaker { font-weight: 700; margin-right: 6px; }
-    .action { color: #734; margin-left: 10px; font-size: 12px; }
-  </style>
-</head>
-<body>
-  <h1>DeepSeek Dialogue Generation Progress</h1>
-  <div class="card">
-    <div id="summary" class="status">loading...</div>
-  </div>
 
-  <h2>Active conversations</h2>
-  <pre id="active"></pre>
 
-  <h2>Latest public timeline</h2>
-  <div id="timeline" class="timeline"></div>
-
-  <div class="grid">
-    <div class="card"><h2>Last actor output</h2><pre id="last_actor"></pre></div>
-    <div class="card"><h2>Last controller output</h2><pre id="last_controller"></pre></div>
-    <div class="card"><h2>Persona</h2><pre id="last_persona"></pre></div>
-    <div class="card"><h2>Recent events</h2><pre id="events"></pre></div>
-    <div class="card"><h2>Errors</h2><pre id="errors"></pre></div>
-  </div>
-
-<script>
-async function refresh() {
-  const res = await fetch('/state?t=' + Date.now());
-  const s = await res.json();
-  const summary = s.summary || {};
-  document.getElementById('summary').textContent =
-    'status: ' + (s.status || '') + '\n' +
-    'updated_at: ' + (s.updated_at || '') + '\n' +
-    'written: ' + (summary.written ?? '') + ' / ' + (summary.total_requested ?? '') + '\n' +
-    'workers: ' + (summary.workers ?? '') + '\n' +
-    'out: ' + (summary.out || '');
-
-  document.getElementById('active').textContent = JSON.stringify(s.active || {}, null, 2);
-
-  const timeline = document.getElementById('timeline');
-  timeline.innerHTML = '';
-  (s.latest_public_timeline || []).forEach(m => {
-    const div = document.createElement('div');
-    div.className = 'msg';
-    const sp = document.createElement('span');
-    sp.className = 'speaker';
-    sp.textContent = (m.speaker || '?') + ':';
-    const tx = document.createElement('span');
-    tx.textContent = ' ' + (m.utterance || '');
-    div.appendChild(sp);
-    div.appendChild(tx);
-    if (m.visible_action) {
-      const ac = document.createElement('div');
-      ac.className = 'action';
-      ac.textContent = 'action: ' + JSON.stringify(m.visible_action);
-      div.appendChild(ac);
-    }
-    timeline.appendChild(div);
-  });
-  timeline.scrollTop = timeline.scrollHeight;
-
-  document.getElementById('last_actor').textContent = JSON.stringify(s.last_actor, null, 2);
-  document.getElementById('last_controller').textContent = JSON.stringify(s.last_controller, null, 2);
-  document.getElementById('last_persona').textContent = JSON.stringify(s.last_persona, null, 2);
-  document.getElementById('events').textContent = JSON.stringify((s.events || []).slice(-80), null, 2);
-  document.getElementById('errors').textContent = JSON.stringify((s.errors || []).slice(-30), null, 2);
-}
-setInterval(refresh, 1000);
-refresh();
-</script>
-</body>
-</html>
-"""
+PROGRESS_HTML = ""  # legacy placeholder; UI is now served from chara_ds/web/.
 
 
 class ProgressHandler(BaseHTTPRequestHandler):
@@ -225,8 +151,18 @@ class ProgressHandler(BaseHTTPRequestHandler):
             self._send_bytes(data, "application/json; charset=utf-8")
             return
 
-        if path in ("/", "/index.html"):
-            self._send_bytes(PROGRESS_HTML.encode("utf-8"), "text/html; charset=utf-8")
+        static = STATIC_FILES.get(path)
+        if static is not None:
+            filename, content_type = static
+            file_path = WEB_DIR / filename
+            try:
+                data = file_path.read_bytes()
+            except FileNotFoundError:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(b"missing static asset")
+                return
+            self._send_bytes(data, content_type)
             return
 
         self.send_response(404)

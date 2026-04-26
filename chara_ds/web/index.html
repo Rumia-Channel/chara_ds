@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>chara_ds — Dialogue Generation Progress</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="brand">chara_ds</span>
+      <span class="dot" id="status-dot"></span>
+      <span class="status-text" id="status-text">loading…</span>
+    </div>
+    <div class="topbar-mid">
+      <div class="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <div class="progress-label" id="progress-label">— / —</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span class="meta" id="meta-workers">workers: —</span>
+      <span class="meta" id="meta-out">out: —</span>
+      <span class="meta" id="meta-updated">updated: —</span>
+      <label class="pause-toggle">
+        <input type="checkbox" id="pause-toggle"> pause
+      </label>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="col col-active">
+      <div class="section-head">
+        <h2>Active conversations</h2>
+        <span class="count" id="active-count">0</span>
+      </div>
+      <div id="active-list" class="active-list"></div>
+    </section>
+
+    <section class="col col-timeline">
+      <div class="section-head">
+        <h2>Latest public timeline</h2>
+        <span class="count" id="timeline-count">0</span>
+      </div>
+      <div id="timeline" class="timeline"></div>
+    </section>
+
+    <section class="col col-detail">
+      <div class="tabs">
+        <button class="tab active" data-tab="actor">Last actor</button>
+        <button class="tab" data-tab="controller">Last controller</button>
+        <button class="tab" data-tab="persona">Persona</button>
+        <button class="tab" data-tab="events">Events</button>
+        <button class="tab" data-tab="errors">Errors <span class="badge" id="errors-badge">0</span></button>
+      </div>
+      <div class="tab-panes">
+        <pre class="tab-pane active" id="pane-actor"></pre>
+        <pre class="tab-pane" id="pane-controller"></pre>
+        <pre class="tab-pane" id="pane-persona"></pre>
+        <div class="tab-pane" id="pane-events"></div>
+        <div class="tab-pane" id="pane-errors"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
