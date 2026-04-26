@@ -22,10 +22,22 @@ ACTOR_MARKERS: List[Tuple[str, str]] = [
 ]
 
 _ACTOR_MARKER_LABELS = {label: key for key, label in ACTOR_MARKERS}
-# Match a section header like "[思考]" sitting on its own line, allowing
-# surrounding whitespace and full-width brackets as a tolerant fallback.
+# Match a section header. Tolerant of:
+#   [思考]   【思考】   [思考]:   [思考]：
+#   **思考**   **思考：**
+#   ### 思考   ## 思考
+#   思考:   思考：   （単独行）
+# Header label and any decoration must be alone on its own line.
 _ACTOR_SECTION_RE = re.compile(
-    r"^[ \t\u3000]*[\[【]\s*(?P<label>[^\]\】]+?)\s*[\]\】][ \t\u3000]*$",
+    r"^[ \t\u3000]*"
+    r"(?:[#＃]{1,6}[ \t\u3000]*)?"          # optional markdown heading
+    r"(?:[\*＊]{1,3}[ \t\u3000]*)?"          # optional bold open
+    r"(?:[\[【［][ \t\u3000]*)?"             # optional bracket open
+    r"(?P<label>思考|内心|行動|発話|潜在)"
+    r"(?:[ \t\u3000]*[\]\】］])?"            # optional bracket close
+    r"(?:[ \t\u3000]*[:：])?"                # optional colon (inside bold)
+    r"(?:[ \t\u3000]*[\*＊]{1,3})?"          # optional bold close
+    r"[ \t\u3000]*[:：]?[ \t\u3000]*$",      # optional colon (outside bold)
     re.MULTILINE,
 )
 
@@ -249,9 +261,11 @@ def call_actor(
     }
 
     if not validate_actor_output(parsed, speaker):
+        snippet = (raw or "")[:200].replace("\n", "\\n")
         raise ValueError(
             f"invalid actor output for speaker {speaker} "
-            f"(parsed_keys={sorted(fields.keys())}, raw_len={len(raw)})"
+            f"(parsed_keys={sorted(fields.keys())}, raw_len={len(raw)}, "
+            f"raw_head={snippet!r})"
         )
 
     return parsed, reasoning, usage, raw
