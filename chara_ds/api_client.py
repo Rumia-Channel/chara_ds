@@ -60,14 +60,39 @@ def usage_to_dict(usage: Any) -> Dict[str, Any]:
         return {}
 
     try:
-        return usage.model_dump()
+        d = usage.model_dump()
     except Exception:
-        pass
+        try:
+            d = dict(usage)
+        except Exception:
+            return {"raw": str(usage)}
 
-    try:
-        return dict(usage)
-    except Exception:
-        return {"raw": str(usage)}
+    return _compact_usage(d)
+
+
+_USAGE_KEEP = {
+    "completion_tokens",
+    "prompt_tokens",
+    "total_tokens",
+    "prompt_cache_hit_tokens",
+    "prompt_cache_miss_tokens",
+    "reasoning_tokens",
+}
+
+
+def _compact_usage(d: Dict[str, Any]) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for k in _USAGE_KEEP:
+        if k in d and d[k] is not None:
+            out[k] = d[k]
+
+    details = d.get("completion_tokens_details") or {}
+    if isinstance(details, dict):
+        rt = details.get("reasoning_tokens")
+        if rt is not None and "reasoning_tokens" not in out:
+            out["reasoning_tokens"] = rt
+
+    return out
 
 
 def _build_messages(
