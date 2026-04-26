@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,6 +21,28 @@ STATIC_FILES: Dict[str, tuple[str, str]] = {
     "/style.css":  ("style.css",  "text/css; charset=utf-8"),
     "/app.js":     ("app.js",     "application/javascript; charset=utf-8"),
 }
+
+
+def _compute_static_version() -> str:
+    """Hash all served static assets so we can bust intermediary caches.
+
+    We hash file contents (not mtime) so reloads inside a single Python
+    process pick up edits even when the filesystem timestamp is the same,
+    and so two processes serving identical files share a version string.
+    """
+    h = hashlib.sha256()
+    for filename in sorted({fn for fn, _ in STATIC_FILES.values()}):
+        try:
+            h.update(filename.encode("utf-8"))
+            h.update(b"\0")
+            h.update((WEB_DIR / filename).read_bytes())
+            h.update(b"\0")
+        except FileNotFoundError:
+            continue
+    return h.hexdigest()[:12]
+
+
+STATIC_VERSION = _compute_static_version()
 
 
 PROGRESS_LOCK = threading.Lock()
@@ -342,11 +365,26 @@ class ProgressHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
-    def _send_bytes(self, data: bytes, content_type: str, status: int = 200) -> None:
+    def _send_bytes(
+        self,
+        data: bytes,
+        content_type: str,
+        status: int = 200,
+        extra_headers: Optional[Dict[str, str]] = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
-        self.send_header("Cache-Control", "no-store")
+        # Defeat any intermediary cache (nginx, browser, etc.). The
+        # generated HTML also embeds ?v=<STATIC_VERSION> on every static
+        # asset so even badly behaved proxies cannot serve a stale bundle.
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        self.send_header("X-Static-Version", STATIC_VERSION)
         self.send_header("Access-Control-Allow-Origin", "*")
+        if extra_headers:
+            for k, v in extra_headers.items():
+                self.send_header(k, v)
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -453,6 +491,21 @@ class ProgressHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b"missing static asset")
                 return
+            if filename.endswith(".html"):
+                # Rewrite static asset URLs so each deploy / restart busts
+                # any HTTP cache (nginx, Cloudflare, browser disk cache).
+                text = data.decode("utf-8")
+                text = text.replace('href="/style.css"', f'href="/style.css?v={STATIC_VERSION}"')
+                text = text.replace('src="/app.js"', f'src="/app.js?v={STATIC_VERSION}"')
+                # Expose the version to JS so future fetches/imports can append it.
+                text = text.replace(
+                    "</head>",
+                    f'  <meta name="static-version" content="{STATIC_VERSION}">\n'
+                    f'  <script>window.__STATIC_VERSION__ = "{STATIC_VERSION}";</script>\n'
+                    f"</head>",
+                    1,
+                )
+                data = text.encode("utf-8")
             self._send_bytes(data, content_type)
             return
 
