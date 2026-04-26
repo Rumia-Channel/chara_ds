@@ -23,8 +23,14 @@
       <span class="meta" id="meta-workers">workers: —</span>
       <span class="meta" id="meta-out">out: —</span>
       <span class="meta" id="meta-updated">updated: —</span>
-      <label class="pause-toggle">
-        <input type="checkbox" id="pause-toggle"> pause
+      <span class="control-badge" id="control-badge"></span>
+      <div class="control-buttons">
+        <button id="btn-pause" class="ctrl-btn" title="Pause new conversations">⏸ Pause</button>
+        <button id="btn-resume" class="ctrl-btn" title="Resume" hidden>▶ Resume</button>
+        <button id="btn-stop" class="ctrl-btn ctrl-danger" title="Stop after current conversations finish">⏹ Stop</button>
+      </div>
+      <label class="pause-toggle" title="Pause UI auto-refresh only">
+        <input type="checkbox" id="ui-pause-toggle"> ui pause
       </label>
     </div>
   </header>
@@ -56,6 +62,8 @@
         <button class="tab active" data-tab="actor">Last actor</button>
         <button class="tab" data-tab="controller">Last controller</button>
         <button class="tab" data-tab="persona">Persona</button>
+        <button class="tab" data-tab="queue">Queue <span class="badge" id="queue-badge">0</span></button>
+        <button class="tab" data-tab="completed">Completed <span class="badge" id="completed-badge">0</span></button>
         <button class="tab" data-tab="events">Events</button>
         <button class="tab" data-tab="errors">Errors <span class="badge" id="errors-badge">0</span></button>
       </div>
@@ -63,6 +71,46 @@
         <pre class="tab-pane active" id="pane-actor"></pre>
         <pre class="tab-pane" id="pane-controller"></pre>
         <pre class="tab-pane" id="pane-persona"></pre>
+        <div class="tab-pane" id="pane-queue">
+          <div class="queue-toolbar">
+            <button id="queue-refresh" class="ctrl-btn">⟳ Refresh</button>
+            <label class="queue-filter">
+              <input type="checkbox" id="queue-hide-consumed"> hide already-picked
+            </label>
+            <span class="queue-info" id="queue-info">—</span>
+          </div>
+          <div class="queue-add">
+            <textarea id="queue-add-text" rows="2" placeholder="新しいシチュエーション (1 行)"></textarea>
+            <button id="queue-add-btn" class="ctrl-btn">＋ Add</button>
+          </div>
+          <div id="queue-list" class="queue-list"></div>
+        </div>
+        <div class="tab-pane" id="pane-completed">
+          <div class="completed-toolbar">
+            <button id="completed-refresh" class="ctrl-btn">⟳ Refresh</button>
+            <label>order
+              <select id="completed-order">
+                <option value="desc" selected>newest first</option>
+                <option value="asc">oldest first</option>
+              </select>
+            </label>
+            <label>page size
+              <select id="completed-limit">
+                <option>20</option>
+                <option selected>50</option>
+                <option>100</option>
+                <option>200</option>
+              </select>
+            </label>
+            <span class="completed-info" id="completed-info">—</span>
+            <span class="completed-pager">
+              <button id="completed-prev" class="ctrl-btn">‹ prev</button>
+              <button id="completed-next" class="ctrl-btn">next ›</button>
+            </span>
+          </div>
+          <div id="completed-list" class="completed-list"></div>
+          <div id="completed-detail" class="completed-detail" hidden></div>
+        </div>
         <div class="tab-pane" id="pane-events"></div>
         <div class="tab-pane" id="pane-errors"></div>
       </div>

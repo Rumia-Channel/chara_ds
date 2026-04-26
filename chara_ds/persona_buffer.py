@@ -36,6 +36,32 @@ class PersonaBuffer:
             self._items.extend(new_items)
             self._cond.notify_all()
 
+    def replace(self, line_number: int, text: str, sha256: str) -> bool:
+        """Replace the text of a buffered persona line.
+
+        Returns True if a slot with that ``line_number`` was found.
+        Items that are currently being processed by a worker are not
+        recalled — the change only takes effect for future picks.
+        """
+        with self._cond:
+            for i, item in enumerate(self._items):
+                if item.line_number == line_number:
+                    self._items[i] = PersonaLine(
+                        line_number=line_number,
+                        text=text,
+                        sha256=sha256,
+                    )
+                    self._cond.notify_all()
+                    return True
+        return False
+
+    def get_by_line_number(self, line_number: int) -> Optional[PersonaLine]:
+        with self._cond:
+            for item in self._items:
+                if item.line_number == line_number:
+                    return item
+        return None
+
     def mark_finished(self) -> None:
         """Signal that no more items will ever be added."""
         with self._cond:

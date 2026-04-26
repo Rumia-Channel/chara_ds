@@ -18,11 +18,11 @@ from .api_client import call_with_retries, make_client
 from .config import PersonaLine
 from .io_utils import read_text, sha256_text
 from .persona_buffer import PersonaBuffer
+from .progress import safe_append_line as append_line
 from .situation_gen import (
     EMOTION_VOCAB,
     SITUATION_GEN_MODEL_DEFAULT,
     TONE_VOCAB,
-    append_line,
     call_generator,
 )
 
@@ -88,6 +88,12 @@ def start_background_producer(
             iteration = 0
             while iteration < max_iterations:
                 if stop_event is not None and stop_event.is_set():
+                    break
+                # Honour global UI control state.
+                from .progress import is_stopped as _is_stopped
+                from .progress import wait_if_paused as _wait_if_paused
+                _wait_if_paused()
+                if _is_stopped():
                     break
                 if target_count is not None and len(buffer) >= target_count:
                     break

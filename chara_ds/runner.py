@@ -28,7 +28,13 @@ from .io_utils import (
     sort_jsonl_by_conversation_id,
 )
 from .persona_buffer import PersonaBuffer
-from .progress import progress_update, start_progress_server
+from .progress import (
+    is_stopped,
+    progress_update,
+    register_persona_buffer,
+    start_progress_server,
+    wait_if_paused,
+)
 from .situation_gen import SITUATION_GEN_MODEL_DEFAULT
 from .situation_producer import start_background_producer
 
@@ -70,6 +76,17 @@ def run_one_conversation_task(
     actor_thinking_enabled: bool,
 ) -> Dict[str, Any]:
     conversation_index = idx0 + 1
+
+    # Honour pause / stop control before opening any expensive resources.
+    wait_if_paused()
+    if is_stopped():
+        return {
+            "ok": False,
+            "idx0": idx0,
+            "record": None,
+            "error": {"error": "stopped"},
+            "skipped": True,
+        }
 
     persona_line, variation = pick_persona_line_for_index(
         idx0=idx0,
@@ -326,6 +343,7 @@ def main() -> None:
 
     persona_buffer = PersonaBuffer(initial=persona_lines)
     pool_size_for_indexing = needed_situations
+    register_persona_buffer(persona_buffer, args.persona_txt, initial_pool)
 
     errors_out = args.errors_out or args.out + ".errors.jsonl"
     already_done = count_jsonl_lines(args.out) if args.resume else 0
@@ -470,6 +488,8 @@ def main() -> None:
 
         with tqdm(total=total_requested, initial=already_done) as pbar:
             for idx0 in work_indices:
+                if is_stopped():
+                    break
                 result = run_one_conversation_task(
                     idx0=idx0,
                     args=args,
@@ -481,6 +501,10 @@ def main() -> None:
                     turn_controller_thinking_enabled=turn_controller_thinking_enabled,
                     actor_thinking_enabled=actor_thinking_enabled,
                 )
+
+                if result.get("skipped"):
+                    pbar.update(1)
+                    continue
 
                 if result["ok"]:
                     append_jsonl(args.out, result["record"])
@@ -534,6 +558,10 @@ def main() -> None:
 
                 for future in as_completed(futures):
                     result = future.result()
+
+                    if result.get("skipped"):
+                        pbar.update(1)
+                        continue
 
                     if result["ok"]:
                         append_jsonl(args.out, result["record"])
