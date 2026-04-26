@@ -33,6 +33,27 @@ user_txt から、日本語の創作会話用の架空キャラクター A と B
 - forbidden_disclosures には、会話中に不用意に出してはいけない情報を書く。
 - scenario_constraints には、身体的行動や負傷描写が必要な場合、その範囲を明記する。
 
+speech_style の作り方（重要）:
+- 各キャラの speech_style は、そのキャラ固有の口調指紋として具体的に書く。
+  「丁寧」「ぶっきらぼう」のような抽象タグだけでは不十分。
+- first_person はそのキャラが普段使う一人称 (例: 私 / 俺 / あたし / 僕 / うち / わたくし)。1〜2 個に絞る。
+- second_person_for_partner は相手をどう呼ぶか (例: あなた / お前 / あんた / ○○ちゃん / ○○姉さん / 君)。
+  怒ったときの呼び方が変わるならその旨も含める。
+- sentence_endings は語尾サンプル (例: 「〜だよ」「〜だわ」「〜だぜ」「〜ですわ」「〜じゃん」)。3〜6 個。
+- swear_words_when_angry は、そのキャラが本気で怒ったときに口にしうる語のリスト。
+  キャラの性別・年齢・育ち・社会階層に整合させる。
+  例: 上品な令嬢に「てめぇ」「クソが」は不自然。「最低」「ふざけないで」「許さない」など、
+  そのキャラが実際に言いそうな強い語を選ぶ。
+  逆にガラの悪い男なら「てめぇ」「ぶっ殺すぞ」も自然。
+  穏やかなキャラなら、怒っても語気の鋭さで表現し、罵倒語自体は出さない選択もある。
+- example_calm_line と example_angry_line には、そのキャラが平常時 / 激怒時に
+  実際に言いそうな短い1文を書く。Actor はこれを口調の見本として使う。
+- forbidden_phrases には、そのキャラが絶対に言わない言い回しを入れる
+  (例: 上品な女性キャラには「てめぇ」「俺」「だろ」を入れる、
+   ぶっきらぼうな男性キャラには「ですわ」「あらあら」を入れる、など)。
+- 性別・年齢・職業・出身・性格と矛盾する語彙を混ぜない。
+  Actor はこの speech_style に厳密に従って発話するため、ここでブレると会話全体がブレる。
+
 json schema:
 {
   "persona_seed": {
@@ -47,8 +68,21 @@ json schema:
       "A": {
         "role": "string",
         "age_band": "teen | 20s | 30s | 40s | 50s | 60s+ | unspecified",
+        "gender": "female | male | nonbinary | unspecified",
         "personality": "string",
-        "speech_style": "string",
+        "speech_style": {
+          "register": "casual | polite | rough | formal | childish | archaic | dialect | other",
+          "first_person": "string",
+          "second_person_for_partner": "string",
+          "sentence_endings": ["string"],
+          "interjections": ["string"],
+          "swear_words_when_angry": ["string"],
+          "dialect_or_accent": "string",
+          "speech_quirks": "string",
+          "example_calm_line": "string",
+          "example_angry_line": "string",
+          "forbidden_phrases": ["string"]
+        },
         "values": ["string"],
         "weaknesses": ["string"],
         "default_goal": "string",
@@ -59,8 +93,21 @@ json schema:
       "B": {
         "role": "string",
         "age_band": "teen | 20s | 30s | 40s | 50s | 60s+ | unspecified",
+        "gender": "female | male | nonbinary | unspecified",
         "personality": "string",
-        "speech_style": "string",
+        "speech_style": {
+          "register": "casual | polite | rough | formal | childish | archaic | dialect | other",
+          "first_person": "string",
+          "second_person_for_partner": "string",
+          "sentence_endings": ["string"],
+          "interjections": ["string"],
+          "swear_words_when_angry": ["string"],
+          "dialect_or_accent": "string",
+          "speech_quirks": "string",
+          "example_calm_line": "string",
+          "example_angry_line": "string",
+          "forbidden_phrases": ["string"]
+        },
         "values": ["string"],
         "weaknesses": ["string"],
         "default_goal": "string",

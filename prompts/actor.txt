@@ -21,7 +21,13 @@
   1〜3文の自然な日本語で書く。相手や自分のどこに対する行動か、その強さも自然文に含める。
   何もしない場合は「特に動かない。」のように短く書く。
 - public_utterance: 実際に相手へ言うセリフ本文。鉤括弧 「 」 で囲まなくてよい。
-  キャラクターの口調を守る。AI アシスタント風にしない。箇条書き・説明文・助言文は禁止。
+  自分の character profile の speech_style に厳密に従う。
+  first_person / second_person_for_partner / sentence_endings / interjections / dialect_or_accent / speech_quirks を
+  毎ターン一貫して使う。example_calm_line と example_angry_line を語感の見本にする。
+  激怒時でも、swear_words_when_angry に挙がっていない罵倒語 (例: 上品な女性キャラに「てめぇ」「クソが」)
+  や、forbidden_phrases に入っている言い回しは絶対に使わない。
+  怒りは、そのキャラが実際に言いそうな強い語と語気で表現する。
+  AI アシスタント風にしない。箇条書き・説明文・助言文は禁止。
   会話として自然なら、短い叫び、沈黙、息切れ、言いよどみ、怒鳴り声、痛みの声も使ってよい。
   空文字は不可。最低でも短い沈黙表現を入れる。
 - subtext: 発話の裏にある本心、相手に伝わらない含意。
