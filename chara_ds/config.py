@@ -6,10 +6,12 @@ from dataclasses import dataclass
 
 
 DEFAULT_MODEL = "deepseek-v4-pro"
-DEFAULT_BASE_URL = "https://api.deepseek.com"
+# Beta endpoint required for `strict: true` tool schemas (and other beta features).
+# The non-beta endpoint will reject `strict: true` with a 400.
+DEFAULT_BASE_URL = "https://api.deepseek.com/beta"
 
 DATASET_NAME = "persona_controlled_deepseek_triple_agent_ja"
-SCHEMA_VERSION = "12.0"
+SCHEMA_VERSION = "13.0"
 
 
 @dataclass

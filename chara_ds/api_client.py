@@ -70,6 +70,39 @@ def usage_to_dict(usage: Any) -> Dict[str, Any]:
         return {"raw": str(usage)}
 
 
+def _build_messages(
+    system_prompt: str,
+    user_payload: Dict[str, Any],
+    static_context: Optional[Dict[str, Any]],
+) -> list:
+    """Build the messages list with KV-cache friendly layout.
+
+    static_context (if provided) is appended to the system prompt so that
+    the entire prefix (system + per-conversation invariants) is identical
+    for every call within the same conversation/speaker. DeepSeek's KV
+    Context Caching persists this prefix as a "cache prefix unit" and
+    subsequent calls hit the cache for it (input cost ~12x cheaper).
+
+    The volatile per-turn data goes into the single user message.
+    """
+    if static_context is None:
+        sys_content = system_prompt
+    else:
+        sys_content = (
+            system_prompt
+            + "\n\n# 不変のセッション情報 (このセッション中は変化しない)\n"
+            + json.dumps(static_context, ensure_ascii=False)
+        )
+
+    return [
+        {"role": "system", "content": sys_content},
+        {
+            "role": "user",
+            "content": json.dumps(user_payload, ensure_ascii=False),
+        },
+    ]
+
+
 def call_deepseek_json(
     client: OpenAI,
     *,
@@ -81,14 +114,9 @@ def call_deepseek_json(
     thinking_enabled: bool,
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
+    static_context: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": json.dumps(user_payload, ensure_ascii=False),
-        },
-    ]
+    messages = _build_messages(system_prompt, user_payload, static_context)
 
     kwargs: Dict[str, Any] = {
         "model": model,
@@ -176,6 +204,7 @@ def call_deepseek_text(
     thinking_enabled: bool,
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
+    static_context: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Optional[str], Dict[str, Any], str]:
     """Plain-text variant of `call_deepseek_json` used for marker-format outputs.
 
@@ -183,13 +212,7 @@ def call_deepseek_text(
     `message.content` (or, if empty, the reasoning_content as a fallback when
     DeepSeek's thinking mode swallows the body into reasoning).
     """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": json.dumps(user_payload, ensure_ascii=False),
-        },
-    ]
+    messages = _build_messages(system_prompt, user_payload, static_context)
 
     kwargs: Dict[str, Any] = {
         "model": model,
@@ -255,33 +278,32 @@ def call_deepseek_tool(
     thinking_enabled: bool,
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
+    static_context: Optional[Dict[str, Any]] = None,
+    tool_strict: bool = True,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     """Force the model to emit the response as a function/tool call.
 
     Returns (parsed_arguments, reasoning_content, usage, raw_arguments_json).
 
-    DeepSeek (OpenAI-compatible) accepts `tools` + `tool_choice`. Forcing a
-    specific tool eliminates whole classes of format-violation bugs because
-    the API itself rejects/coerces malformed arguments.
+    With ``tool_strict=True`` (and the beta base_url), DeepSeek validates the
+    JSON Schema **server-side** when the model emits a tool call, so format
+    violations are eliminated at the API level. Combined with KV cache via
+    ``static_context``, this is the cheapest reliable way to force structured
+    output for high-volume generation.
     """
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": json.dumps(user_payload, ensure_ascii=False),
-        },
-    ]
+    messages = _build_messages(system_prompt, user_payload, static_context)
 
-    tools = [
-        {
-            "type": "function",
-            "function": {
-                "name": tool_name,
-                "description": tool_description,
-                "parameters": tool_parameters,
-            },
-        }
-    ]
+    function_def: Dict[str, Any] = {
+        "name": tool_name,
+        "description": tool_description,
+        "parameters": tool_parameters,
+    }
+    if tool_strict:
+        # Beta-only feature: server-side JSON Schema enforcement on tool args.
+        # Requires base_url=https://api.deepseek.com/beta.
+        function_def["strict"] = True
+
+    tools = [{"type": "function", "function": function_def}]
 
     kwargs: Dict[str, Any] = {
         "model": model,

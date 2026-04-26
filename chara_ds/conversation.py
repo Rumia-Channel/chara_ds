@@ -281,6 +281,8 @@ def generate_one_conversation(
                 "turn_index": turn_index,
                 "speaker": speaker,
                 "utterance": actor_content.get("public_utterance", ""),
+                "cache_hit_tokens": actor_usage.get("prompt_cache_hit_tokens"),
+                "cache_miss_tokens": actor_usage.get("prompt_cache_miss_tokens"),
             },
         )
 

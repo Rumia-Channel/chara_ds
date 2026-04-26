@@ -142,13 +142,13 @@ def call_turn_controller(
     temperature: float,
     top_p: float,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
-    payload = {
+    # Static across the whole conversation -> appended to system prompt so the
+    # KV cache prefix is identical for every turn_controller call in this run.
+    static_context = {
         "task": "create_next_turn_control",
         "conversation_id": conversation_id,
-        "turn_index": turn_index,
         "target_turns": target_turns,
         "persona_seed": persona_seed,
-        "public_timeline": public_timeline,
         "instruction": (
             "次ターンの制御だけを json で返す。"
             "次話者、会話圧、行動の方向性、感情の圧だけを制御する。"
@@ -156,11 +156,18 @@ def call_turn_controller(
         ),
     }
 
+    # Dynamic per turn.
+    payload = {
+        "turn_index": turn_index,
+        "public_timeline": public_timeline,
+    }
+
     parsed, reasoning, usage, raw = call_deepseek_json(
         client,
         model=model,
         system_prompt=prompts.turn_controller,
         user_payload=payload,
+        static_context=static_context,
         max_tokens=max_tokens,
         reasoning_effort=reasoning_effort,
         thinking_enabled=thinking_enabled,
@@ -195,24 +202,30 @@ def call_actor(
     scenario_constraints = persona_seed.get("scenario_constraints", {})
     global_style = persona_seed.get("global_style", {})
 
-    payload = {
+    # Static per (conversation, speaker). Stays identical for every actor turn
+    # of this speaker, so cache hits compound across the conversation.
+    static_context = {
         "task": "generate_next_actor_turn",
         "speaker": speaker,
-        "turn_index": turn_index,
         "global_style": global_style,
         "own_character_profile": own_profile,
         "relationship_public": relationship,
         "scenario_constraints": scenario_constraints,
-        "controller_directive_for_you": turn_control.get("directive_for_next_speaker", {}),
-        "scene_state": turn_control.get("scene_state"),
-        "conversation_pressure": turn_control.get("conversation_pressure"),
-        "public_event": turn_control.get("public_event"),
-        "public_timeline": public_timeline,
         "instruction": (
             f"speaker {speaker} の次の1ターンだけを、関数 {ACTOR_TOOL_NAME} を呼び出すことで提出する。"
             "通常のメッセージ本文には何も書かない。必ず関数呼び出しで返す。"
             "public_timeline の visible_action が自分に向けられている場合は自然に反応する。"
         ),
+    }
+
+    # Dynamic per turn.
+    payload = {
+        "turn_index": turn_index,
+        "controller_directive_for_you": turn_control.get("directive_for_next_speaker", {}),
+        "scene_state": turn_control.get("scene_state"),
+        "conversation_pressure": turn_control.get("conversation_pressure"),
+        "public_event": turn_control.get("public_event"),
+        "public_timeline": public_timeline,
     }
 
     actor_prompt = prompts.actor.replace("__SPEAKER__", speaker)
@@ -222,9 +235,11 @@ def call_actor(
         model=model,
         system_prompt=actor_prompt,
         user_payload=payload,
+        static_context=static_context,
         tool_name=ACTOR_TOOL_NAME,
         tool_description=ACTOR_TOOL_DESCRIPTION,
         tool_parameters=ACTOR_TOOL_PARAMETERS,
+        tool_strict=True,
         max_tokens=max_tokens,
         reasoning_effort=reasoning_effort,
         thinking_enabled=thinking_enabled,

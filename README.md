@@ -2,6 +2,22 @@
 
 DeepSeek triple-agent dialogue dataset generator.
 
+## DeepSeek API features in use
+
+- **Beta endpoint** (`https://api.deepseek.com/beta`) — required for the
+  features below. Override with `--base-url` if needed.
+- **Strict tool schema** (`function.strict = true`) — the actor agent emits
+  its turn through a function call (`submit_actor_turn`); the API enforces
+  the JSON Schema server-side, so the actor cannot return malformed output.
+- **KV Context Caching** — each agent's invariants for one conversation
+  (persona seed, character profile, scenario constraints, …) are appended to
+  the system prompt, so every subsequent call within the same conversation
+  hits the prompt cache. Per-token input cost drops to ~1/12 on cache hit.
+  Hit/miss counts are surfaced in `usage.prompt_cache_{hit,miss}_tokens`
+  and per-turn progress events.
+- **Thinking mode** (`extra_body.thinking.type = enabled`) with
+  `reasoning_effort=high` for persona / actor by default.
+
 ## Files
 
 ```text
