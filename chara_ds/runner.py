@@ -388,16 +388,29 @@ def main() -> None:
 
     if args.progress_server:
         start_progress_server(args.progress_host, args.progress_port)
-        shown_host = (
-            "127.0.0.1"
-            if args.progress_host in ("0.0.0.0", "")
-            else args.progress_host
-        )
+        urls: list[str] = []
+        if args.progress_host in ("0.0.0.0", ""):
+            urls.append(f"http://127.0.0.1:{args.progress_port}")
+            try:
+                import socket as _socket
+
+                hostname = _socket.gethostname()
+                lan_ip = _socket.gethostbyname(hostname)
+                if lan_ip and lan_ip != "127.0.0.1":
+                    urls.append(f"http://{lan_ip}:{args.progress_port}")
+                if hostname:
+                    urls.append(f"http://{hostname}:{args.progress_port}")
+            except Exception:
+                pass
+        else:
+            urls.append(f"http://{args.progress_host}:{args.progress_port}")
         print(
             json.dumps(
                 {
                     "event": "progress_server_started",
-                    "url": f"http://{shown_host}:{args.progress_port}",
+                    "url": urls[0],
+                    "urls": urls,
+                    "bind": args.progress_host,
                 },
                 ensure_ascii=False,
             ),

@@ -114,6 +114,21 @@ Open:
 http://127.0.0.1:8765
 ```
 
+To expose the progress UI to other machines on the LAN, bind to all
+interfaces (default is `127.0.0.1` for safety):
+
+```powershell
+uv run python main.py `
+  ... `
+  --progress-server `
+  --progress-host 0.0.0.0 `
+  --progress-port 8765
+```
+
+The startup log then prints every reachable URL (loopback, LAN IP,
+hostname). Make sure the chosen port is allowed through the host
+firewall.
+
 ## Production-ish run
 
 ```powershell
