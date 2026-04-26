@@ -18,6 +18,29 @@ DeepSeek triple-agent dialogue dataset generator.
 - **Thinking mode** (`extra_body.thinking.type = enabled`) with
   `reasoning_effort=high` for persona / actor by default.
 
+## Generating base situations
+
+`format.txt` (one situation per line) is the input. You can grow it
+automatically with `gen_situations.py`, which uses `deepseek-v4-flash`
+(non-thinking, cheap & fast) plus a strict tool schema to emit diverse
+1-line situations covering many emotion mixes (anger, sadness, joy,
+emptiness, fear, …).
+
+```powershell
+$env:DEEPSEEK_API_KEY = "sk-..."
+
+uv run python gen_situations.py `
+  --out .\format.txt `
+  --target 100 `
+  --batch-size 8 `
+  --seed-situation "Aは長年連れ添った夫、Bは若い後妻、過去の妻の遺品をめぐって静かに口論する。" `
+  --seed-situation "Aは厳格な部活顧問、Bは練習をサボった部員、放課後の教室で対峙する。"
+```
+
+Generated lines are appended to `--out` with sha256 dedup, so re-running
+just continues filling toward `--target`. Use `--use-existing-as-seed` to
+also feed already-existing lines as inspiration.
+
 ## Files
 
 ```text

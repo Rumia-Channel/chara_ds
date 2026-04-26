@@ -111,7 +111,7 @@ def call_deepseek_json(
     user_payload: Dict[str, Any],
     max_tokens: Optional[int],
     reasoning_effort: str,
-    thinking_enabled: bool,
+    thinking_enabled: Optional[bool],
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     static_context: Optional[Dict[str, Any]] = None,
@@ -140,12 +140,17 @@ def call_deepseek_json(
                 "type": "enabled",
             }
         }
-    else:
+    elif thinking_enabled is False:
         kwargs["extra_body"] = {
             "thinking": {
                 "type": "disabled",
             }
         }
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+    else:
         if temperature is not None:
             kwargs["temperature"] = temperature
         if top_p is not None:
@@ -201,7 +206,7 @@ def call_deepseek_text(
     user_payload: Dict[str, Any],
     max_tokens: Optional[int],
     reasoning_effort: str,
-    thinking_enabled: bool,
+    thinking_enabled: Optional[bool],
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     static_context: Optional[Dict[str, Any]] = None,
@@ -225,8 +230,13 @@ def call_deepseek_text(
     if thinking_enabled:
         kwargs["reasoning_effort"] = reasoning_effort
         kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
-    else:
+    elif thinking_enabled is False:
         kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+    else:
         if temperature is not None:
             kwargs["temperature"] = temperature
         if top_p is not None:
@@ -275,7 +285,7 @@ def call_deepseek_tool(
     tool_parameters: Dict[str, Any],
     max_tokens: Optional[int],
     reasoning_effort: str,
-    thinking_enabled: bool,
+    thinking_enabled: Optional[bool],
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     static_context: Optional[Dict[str, Any]] = None,
@@ -322,8 +332,13 @@ def call_deepseek_tool(
     if thinking_enabled:
         kwargs["reasoning_effort"] = reasoning_effort
         kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
-    else:
+    elif thinking_enabled is False:
         kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+    else:
         if temperature is not None:
             kwargs["temperature"] = temperature
         if top_p is not None:
