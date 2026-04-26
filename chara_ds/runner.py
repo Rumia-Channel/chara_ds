@@ -286,16 +286,20 @@ def main() -> None:
     prompts = load_prompts(args.prompt_dir)
 
     initial_pool = len(persona_lines)
+    auto_gen_active = bool(args.auto_generate_situations)
+
     if args.num_conversations is not None:
         total_requested = args.num_conversations
+    elif auto_gen_active and args.situation_target > 0:
+        # Producer will grow format.txt to situation_target lines; dispatch
+        # one batch of dialogues per line, multiplied by variations.
+        total_requested = args.situation_target * args.variations_per_line
     else:
         total_requested = initial_pool * args.variations_per_line
 
     needed_situations = max(
         initial_pool, math.ceil(total_requested / args.variations_per_line)
     )
-
-    auto_gen_active = bool(args.auto_generate_situations)
 
     if (
         not args.auto_generate_situations
