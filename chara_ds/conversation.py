@@ -84,10 +84,14 @@ def generate_one_conversation(
     cache_dir: Optional[str] = None,
     existing_record: Optional[Dict[str, Any]] = None,
     target_turns_override: Optional[int] = None,
+    conversation_id_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     rng = random.Random(seed + conversation_index * 1009 + variation * 9173)
     target_turns = max(rng.randint(min_turns, max_turns), target_turns_override or 0)
     conversation_id = (
+        conversation_id_override
+        if conversation_id_override is not None
+        else
         str(existing_record.get("id") or existing_record.get("conversation_id"))
         if existing_record is not None
         else f"persona_deepseek_triple_ja_{conversation_index:08d}"

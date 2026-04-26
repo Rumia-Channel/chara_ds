@@ -136,6 +136,16 @@ def persona_line_from_record(record: Dict[str, Any], persona_txt_path: str) -> P
     return PersonaLine(line_number=line_number, text=text, sha256=sha)
 
 
+def expand_id_args(values: Optional[List[str]]) -> List[str]:
+    out: List[str] = []
+    for value in values or []:
+        for part in value.split(","):
+            s = part.strip()
+            if s:
+                out.append(s)
+    return out
+
+
 def run_one_conversation_task(
     *,
     idx0: int,
@@ -233,6 +243,102 @@ def run_one_conversation_task(
         return {
             "ok": False,
             "idx0": idx0,
+            "record": None,
+            "error": err,
+        }
+
+
+def rewrite_one_conversation_task(
+    *,
+    record: Dict[str, Any],
+    record_position: int,
+    args: argparse.Namespace,
+    prompts: PromptBundle,
+    errors_out: str,
+    persona_thinking_enabled: bool,
+    turn_controller_thinking_enabled: bool,
+    actor_thinking_enabled: bool,
+    cache_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    conversation_id = str(record.get("id") or record.get("conversation_id") or "")
+    conversation_index = conversation_index_from_id(conversation_id)
+    if conversation_index is None:
+        return {
+            "ok": False,
+            "record_position": record_position,
+            "record": None,
+            "error": {
+                "error": f"cannot parse conversation index from id: {conversation_id!r}",
+            },
+        }
+
+    source = record.get("source") or {}
+    variation = source.get("variation")
+    if not isinstance(variation, int):
+        variation = (record.get("generation_config") or {}).get("variation")
+    if not isinstance(variation, int):
+        variation = 1
+
+    persona_line = persona_line_from_record(record, args.persona_txt)
+    client = get_thread_client(args.base_url)
+
+    try:
+        rewritten = generate_one_conversation(
+            client=client,
+            prompts=prompts,
+            model=args.model,
+            persona_txt_path=args.persona_txt,
+            persona_line=persona_line,
+            conversation_index=conversation_index,
+            variation=variation,
+            min_turns=args.min_turns,
+            max_turns=args.max_turns,
+            seed=args.seed,
+            reasoning_effort=args.reasoning_effort,
+            persona_thinking_enabled=persona_thinking_enabled,
+            turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+            actor_thinking_enabled=actor_thinking_enabled,
+            controller_temperature=args.controller_temperature,
+            controller_top_p=args.controller_top_p,
+            persona_max_tokens=args.persona_max_tokens,
+            controller_max_tokens=args.controller_max_tokens,
+            actor_max_tokens=args.actor_max_tokens,
+            keep_raw_content=args.keep_raw_content,
+            errors_out=errors_out,
+            retries=args.retries,
+            retry_base_sleep=args.retry_base_sleep,
+            cache_dir=cache_dir,
+            conversation_id_override=conversation_id,
+        )
+        return {
+            "ok": True,
+            "record_position": record_position,
+            "record": rewritten,
+            "error": None,
+        }
+    except Exception as e:
+        err = {
+            "created_at": now_iso(),
+            "stage": "rewrite_conversation",
+            "conversation_id": conversation_id,
+            "record_position": record_position,
+            "error_type": type(e).__name__,
+            "error": str(e),
+            "traceback": traceback.format_exc(limit=10),
+        }
+        append_jsonl(errors_out, err)
+        progress_update(
+            status="error",
+            error=err,
+            event={
+                "type": "rewrite_conversation_error",
+                "conversation_id": conversation_id,
+                "error": str(e),
+            },
+        )
+        return {
+            "ok": False,
+            "record_position": record_position,
             "record": None,
             "error": err,
         }
@@ -355,6 +461,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-turns", type=int, default=6)
     parser.add_argument("--max-turns", type=int, default=12)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--rewrite-id",
+        action="append",
+        default=[],
+        help=(
+            "Regenerate existing record(s) in --out by id, preserving the same id. "
+            "May be repeated or given as comma-separated ids."
+        ),
+    )
+    parser.add_argument(
+        "--rewrite-ids-file",
+        default=None,
+        help="Optional file containing one id per line for --rewrite-id mode.",
+    )
+    parser.add_argument(
+        "--rewrite-dry-run",
+        action="store_true",
+        help="Only report records matching --rewrite-id / --rewrite-ids-file; do not call the API or rewrite the jsonl.",
+    )
     parser.add_argument(
         "--finish-min-turns",
         type=int,
@@ -581,6 +706,241 @@ def main() -> None:
     persona_thinking_enabled = not args.disable_persona_thinking
     turn_controller_thinking_enabled = args.enable_turn_controller_thinking
     actor_thinking_enabled = not args.disable_actor_thinking
+
+    rewrite_ids = expand_id_args(args.rewrite_id)
+    if args.rewrite_ids_file:
+        with open(args.rewrite_ids_file, "r", encoding="utf-8") as f:
+            for line in f:
+                s = line.strip()
+                if s and not s.startswith("#"):
+                    rewrite_ids.append(s)
+
+    if rewrite_ids:
+        requested_ids = set(rewrite_ids)
+        records = read_jsonl_records(args.out)
+        targets = [
+            (pos, rec)
+            for pos, rec in enumerate(records)
+            if (rec.get("id") or rec.get("conversation_id")) in requested_ids
+        ]
+        found_ids = {
+            str(rec.get("id") or rec.get("conversation_id"))
+            for _, rec in targets
+        }
+        missing_ids = sorted(requested_ids - found_ids)
+
+        if args.rewrite_dry_run:
+            for pos, rec in targets:
+                print(
+                    json.dumps(
+                        {
+                            "id": rec.get("id") or rec.get("conversation_id"),
+                            "record_position": pos,
+                            "actual_turns": actual_turn_count(rec),
+                            "target_turns": (rec.get("generation_config") or {}).get("target_turns"),
+                            "source_line_number": (rec.get("source") or {}).get("line_number"),
+                            "variation": (rec.get("source") or {}).get("variation"),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    flush=True,
+                )
+            print(
+                json.dumps(
+                    {
+                        "event": "rewrite_dry_run_summary",
+                        "out": args.out,
+                        "requested": len(requested_ids),
+                        "targets": len(targets),
+                        "missing_ids": missing_ids,
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+
+        if not targets:
+            print(
+                json.dumps(
+                    {
+                        "event": "rewrite_nothing_to_do",
+                        "out": args.out,
+                        "requested": len(requested_ids),
+                        "missing_ids": missing_ids,
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+            return
+
+        if args.progress_server:
+            start_progress_server(args.progress_host, args.progress_port)
+            url = f"http://{args.progress_host}:{args.progress_port}"
+            print(
+                json.dumps(
+                    {
+                        "event": "progress_server_started",
+                        "url": url,
+                        "urls": [url],
+                        "bind": args.progress_host,
+                    },
+                    ensure_ascii=False,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+
+        start_event = {
+            "event": "rewrite_start",
+            "out": args.out,
+            "errors_out": errors_out,
+            "requested": len(requested_ids),
+            "targets": len(targets),
+            "missing_ids": missing_ids,
+            "workers": args.workers,
+            "model": args.model,
+        }
+        print(json.dumps(start_event, ensure_ascii=False), file=sys.stderr, flush=True)
+        progress_update(
+            status="rewrite_started",
+            summary={
+                "written": 0,
+                "total_requested": len(targets),
+                "workers": args.workers,
+                "out": args.out,
+            },
+            event=start_event,
+        )
+
+        replacements: Dict[int, Dict[str, Any]] = {}
+        rewritten_count = 0
+
+        if args.workers <= 1:
+            get_thread_client(args.base_url)
+            with tqdm(total=len(targets)) as pbar:
+                for pos, rec in targets:
+                    if is_stopped():
+                        break
+                    wait_if_paused()
+                    result = rewrite_one_conversation_task(
+                        record=rec,
+                        record_position=pos,
+                        args=args,
+                        prompts=prompts,
+                        errors_out=errors_out,
+                        persona_thinking_enabled=persona_thinking_enabled,
+                        turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+                        actor_thinking_enabled=actor_thinking_enabled,
+                        cache_dir=cache_dir,
+                    )
+                    if result["ok"]:
+                        replacements[pos] = result["record"]
+                        rewritten_count += 1
+                        if cache_dir:
+                            delete_turn_cache(cache_dir, result["record"]["id"])
+                    else:
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "rewrite_task_failed",
+                                    "record_position": result["record_position"],
+                                    "error": result["error"]["error"],
+                                },
+                                ensure_ascii=False,
+                            ),
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                    progress_update(
+                        summary={
+                            "written": rewritten_count,
+                            "total_requested": len(targets),
+                            "workers": args.workers,
+                            "out": args.out,
+                        }
+                    )
+                    pbar.update(1)
+                    if args.sleep > 0:
+                        time.sleep(args.sleep)
+        else:
+            with tqdm(total=len(targets)) as pbar:
+                with ThreadPoolExecutor(max_workers=args.workers) as executor:
+                    futures = [
+                        executor.submit(
+                            rewrite_one_conversation_task,
+                            record=rec,
+                            record_position=pos,
+                            args=args,
+                            prompts=prompts,
+                            errors_out=errors_out,
+                            persona_thinking_enabled=persona_thinking_enabled,
+                            turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+                            actor_thinking_enabled=actor_thinking_enabled,
+                            cache_dir=cache_dir,
+                        )
+                        for pos, rec in targets
+                    ]
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result["ok"]:
+                            replacements[result["record_position"]] = result["record"]
+                            rewritten_count += 1
+                            if cache_dir:
+                                delete_turn_cache(cache_dir, result["record"]["id"])
+                        else:
+                            print(
+                                json.dumps(
+                                    {
+                                        "event": "rewrite_task_failed",
+                                        "record_position": result["record_position"],
+                                        "error": result["error"]["error"],
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                        progress_update(
+                            summary={
+                                "written": rewritten_count,
+                                "total_requested": len(targets),
+                                "workers": args.workers,
+                                "out": args.out,
+                            }
+                        )
+                        pbar.update(1)
+                        if args.sleep > 0:
+                            time.sleep(args.sleep)
+
+        for pos, rec in replacements.items():
+            records[pos] = rec
+        rewrite_jsonl_records(args.out, records)
+        sort_jsonl_by_conversation_id(args.out)
+
+        done_event = {
+            "event": "rewrite_done",
+            "rewritten": rewritten_count,
+            "targets": len(targets),
+            "missing_ids": missing_ids,
+            "out": args.out,
+            "errors_out": errors_out,
+        }
+        print(json.dumps(done_event, ensure_ascii=False), file=sys.stderr, flush=True)
+        progress_update(
+            status="rewrite_done",
+            summary={
+                "written": rewritten_count,
+                "total_requested": len(targets),
+                "workers": args.workers,
+                "out": args.out,
+            },
+            event=done_event,
+        )
+        return
 
     if args.finish_min_turns > 0:
         records = read_jsonl_records(args.out)

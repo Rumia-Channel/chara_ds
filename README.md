@@ -175,6 +175,25 @@ uv run python main.py `
   --finish-dry-run-format lines
 ```
 
+## Rewriting specific conversations
+
+To regenerate specific existing records while preserving their conversation
+IDs, pass one or more IDs:
+
+```powershell
+uv run python main.py `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues.jsonl `
+  --prompt-dir .\prompts `
+  --rewrite-id persona_deepseek_triple_ja_00000007 `
+  --min-turns 8 `
+  --max-turns 16
+```
+
+You can repeat `--rewrite-id`, pass comma-separated IDs, or put one ID per line
+in `--rewrite-ids-file`. Use `--rewrite-dry-run` first to verify the matched
+records without calling the API or rewriting the JSONL.
+
 ## Notes
 
 - `public_timeline` contains both utterances and `visible_action`.
