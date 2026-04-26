@@ -1,0 +1,127 @@
+"""File IO, hashing, JSON parsing, and small helpers."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
+
+from .config import PersonaLine, PromptBundle
+
+
+JSONL_WRITE_LOCK = threading.Lock()
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def sha256_json(obj: Any) -> str:
+    return sha256_text(json.dumps(obj, ensure_ascii=False, sort_keys=True))
+
+
+def read_text(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def load_prompts(prompt_dir: str) -> PromptBundle:
+    base = Path(prompt_dir)
+    files = {
+        "persona_controller": base / "persona_controller.txt",
+        "turn_controller": base / "turn_controller.txt",
+        "actor": base / "actor.txt",
+    }
+
+    missing = [str(p) for p in files.values() if not p.exists()]
+    if missing:
+        raise FileNotFoundError(f"missing prompt files: {missing}")
+
+    return PromptBundle(
+        persona_controller=read_text(str(files["persona_controller"])).strip(),
+        turn_controller=read_text(str(files["turn_controller"])).strip(),
+        actor=read_text(str(files["actor"])).strip(),
+    )
+
+
+def load_persona_lines(path: str) -> List[PersonaLine]:
+    items: List[PersonaLine] = []
+
+    with open(path, "r", encoding="utf-8") as f:
+        for line_number, line in enumerate(f, start=1):
+            text = line.strip()
+
+            if not text:
+                continue
+
+            if text.startswith("#"):
+                continue
+
+            items.append(
+                PersonaLine(
+                    line_number=line_number,
+                    text=text,
+                    sha256=sha256_text(text),
+                )
+            )
+
+    if not items:
+        raise ValueError(f"no persona seeds found in {path}")
+
+    return items
+
+
+def parse_json(text: str) -> Dict[str, Any]:
+    if not text or not text.strip():
+        raise ValueError("empty model content")
+
+    cleaned = text.strip()
+
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").strip()
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:].strip()
+
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(cleaned[start:end + 1])
+        raise
+
+
+def safe_mkdir_for_file(path: str) -> None:
+    Path(path).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+
+
+def append_jsonl(path: str, record: Dict[str, Any]) -> None:
+    safe_mkdir_for_file(path)
+    line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+    with JSONL_WRITE_LOCK:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line)
+
+
+def count_jsonl_lines(path: str) -> int:
+    if not os.path.exists(path):
+        return 0
+
+    with open(path, "r", encoding="utf-8") as f:
+        return sum(1 for _ in f)
+
+
+def clip_string(s: str, max_chars: int) -> str:
+    if len(s) <= max_chars:
+        return s
+    return s[:max_chars] + f"... [truncated {len(s) - max_chars} chars]"
