@@ -9,7 +9,7 @@ import time
 import traceback
 from typing import Any, Dict, Optional, Tuple
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 from .io_utils import append_jsonl, now_iso, parse_json
 from .progress import progress_update
@@ -287,7 +287,11 @@ def call_deepseek_tool(
         "model": model,
         "messages": messages,
         "tools": tools,
-        "tool_choice": {"type": "function", "function": {"name": tool_name}},
+        # NOTE: deepseek-reasoner (thinking mode) は
+        # tool_choice={"type":"function","function":{"name":...}} の specific
+        # tool 強制をサポートしていない (BadRequest になる)。"auto" に統一し、
+        # プロンプトと content/reasoning フォールバックで実質的に強制する。
+        "tool_choice": "auto",
     }
 
     if max_tokens is not None and max_tokens > 0:
@@ -375,6 +379,31 @@ def call_with_retries(
     for attempt in range(1, retries + 1):
         try:
             return fn()
+        except BadRequestError as e:
+            # 4xx (invalid request, unsupported tool_choice, schema mismatch等)
+            # はリトライしても同じ結果になるので即 fail させる。
+            err = {
+                "created_at": now_iso(),
+                "attempt": attempt,
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "traceback": traceback.format_exc(limit=5),
+                "context": error_context,
+            }
+            append_jsonl(errors_out, err)
+            progress_update(
+                status="error",
+                error=err,
+                event={
+                    "type": "api_call_error",
+                    "stage": error_context.get("stage"),
+                    "conversation_id": error_context.get("conversation_id"),
+                    "turn_index": error_context.get("turn_index"),
+                    "error_type": type(e).__name__,
+                    "error": str(e),
+                },
+            )
+            raise
         except Exception as e:
             last_error = e
             err = {
