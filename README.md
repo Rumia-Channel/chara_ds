@@ -23,6 +23,14 @@ DeepSeek API では以下を利用します。
 - KV Context Caching: 会話ごとの固定情報を system prompt に積み、同一会話内の後続呼び出しで prompt cache を効かせます。
 - Thinking mode: Persona Controller と Actor は既定で thinking 有効、Turn Controller はコスト削減のため既定で thinking 無効です。
 
+モデルと thinking は CLI から切り替えられます。
+
+- 既定モデルは `deepseek-v4-pro` です。
+- `--flash` を付けると、会話生成を `deepseek-v4-flash` だけで実行します。
+- `--thinking on` は Persona / Turn Controller / Actor の thinking をすべて有効にします。
+- `--thinking off` は Persona / Turn Controller / Actor の thinking をすべて無効にします。
+- `--thinking default` は従来の既定値です。Persona / Actor は有効、Turn Controller は無効です。
+
 ## 入力ファイル
 
 `format.txt` が入力です。1行に1つのお題を書きます。
@@ -95,6 +103,39 @@ uv run python main.py `
   --reasoning-effort high `
   --progress-server
 ```
+
+Flash だけで安く速く回す場合:
+
+```powershell
+uv run python main.py `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues_flash.jsonl `
+  --prompt-dir .\prompts `
+  --flash `
+  --thinking off `
+  --variations-per-line 1 `
+  --min-turns 25 `
+  --max-turns 50 `
+  --workers 9 `
+  --progress-server
+```
+
+制約をかなり緩めた創作寄りプロンプトを使う場合:
+
+```powershell
+uv run python main.py `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues_lax.jsonl `
+  --prompt-dir .\prompts_lax `
+  --min-turns 25 `
+  --max-turns 50 `
+  --workers 9 `
+  --progress-server
+```
+
+`prompts_lax/` は、口調・年齢・性別・身体能力の整合性制御は維持しつつ、成人同士の合意ある露骨な性描写を含みうる関係、性的緊張、暗い感情など、創作上の自由度を削りやすいブロックを減らした版です。合意のない性行為・性的強制・性的搾取の露骨描写、現実の犯罪手順、未成年の性的描写などは境界として残しています。
+
+お題の自動生成も lax 版にする場合は、`gen_situations.py` では `--prompt-file .\prompts_lax\situation_gen.txt`、`main.py --auto-generate-situations` では `--situation-prompt-file .\prompts_lax\situation_gen.txt` を指定してください。
 
 ## お題の自動生成
 
@@ -245,6 +286,14 @@ This repository generates persona settings, relationships, conversation flow, pe
 - **Thinking mode** (`extra_body.thinking.type = enabled`) with
   `reasoning_effort=high` for persona / actor by default.
 
+Model and thinking mode can be switched from the CLI:
+
+- The default dialogue model is `deepseek-v4-pro`.
+- `--flash` runs dialogue generation with `deepseek-v4-flash`.
+- `--thinking on` enables thinking for Persona, Turn Controller, and Actor calls.
+- `--thinking off` disables thinking for Persona, Turn Controller, and Actor calls.
+- `--thinking default` keeps the legacy defaults: Persona / Actor on, Turn Controller off.
+
 ## Generating base situations
 
 `format.txt` (one situation per line) is the input. You can grow it
@@ -336,6 +385,39 @@ uv run python main.py `
   --reasoning-effort high `
   --progress-server
 ```
+
+Flash-only run:
+
+```powershell
+uv run python main.py `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues_flash.jsonl `
+  --prompt-dir .\prompts `
+  --flash `
+  --thinking off `
+  --variations-per-line 1 `
+  --min-turns 25 `
+  --max-turns 50 `
+  --workers 9 `
+  --progress-server
+```
+
+To use the less restrictive creative prompt set:
+
+```powershell
+uv run python main.py `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues_lax.jsonl `
+  --prompt-dir .\prompts_lax `
+  --min-turns 25 `
+  --max-turns 50 `
+  --workers 9 `
+  --progress-server
+```
+
+`prompts_lax/` keeps speech-style, age, gender, and physical-plausibility controls, while reducing blocks that limit creative freedom around consensual adult explicit sexual relationships, adult sexual tension, and darker emotions. It still keeps boundaries for explicit non-consensual sexual content, sexual coercion/exploitation, real-world criminal instructions, and sexual content involving minors.
+
+To use the lax prompt for situation generation too, pass `--prompt-file .\prompts_lax\situation_gen.txt` to `gen_situations.py`, or `--situation-prompt-file .\prompts_lax\situation_gen.txt` when using `main.py --auto-generate-situations`.
 
 Open:
 

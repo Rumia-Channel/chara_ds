@@ -18,7 +18,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from tqdm import tqdm
 
 from .api_client import get_thread_client
-from .config import DEFAULT_BASE_URL, DEFAULT_MODEL, PersonaLine, PromptBundle
+from .config import (
+    DEFAULT_BASE_URL,
+    DEFAULT_MODEL,
+    FLASH_MODEL,
+    PersonaLine,
+    PromptBundle,
+)
 from .conversation import generate_one_conversation
 from .io_utils import (
     append_jsonl,
@@ -487,7 +493,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prompt-dir", default="./prompts")
     parser.add_argument("--errors-out", default=None)
 
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model", default=None)
+    parser.add_argument(
+        "--flash",
+        action="store_true",
+        help=(
+            f"Shortcut for --model {FLASH_MODEL}. If --auto-generate-situations "
+            "is used and --situation-model is omitted, the producer also uses flash."
+        ),
+    )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
 
     parser.add_argument("--num-conversations", type=int, default=None)
@@ -570,6 +584,16 @@ def parse_args() -> argparse.Namespace:
     )
 
     parser.add_argument("--reasoning-effort", choices=["high", "max"], default="high")
+    parser.add_argument(
+        "--thinking",
+        choices=["default", "on", "off"],
+        default="default",
+        help=(
+            "Global thinking mode for persona, turn controller, and actors. "
+            "default keeps the legacy defaults: persona/actor on, turn controller off. "
+            "Per-agent thinking flags below override this value."
+        ),
+    )
 
     parser.add_argument("--disable-persona-thinking", action="store_true")
     parser.add_argument("--enable-turn-controller-thinking", action="store_true")
@@ -660,7 +684,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--situation-model",
-        default=SITUATION_GEN_MODEL_DEFAULT,
+        default=None,
         help="Model used by the background situation producer.",
     )
     parser.add_argument(
@@ -687,6 +711,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+
+    if args.model is None:
+        args.model = FLASH_MODEL if args.flash else DEFAULT_MODEL
+
+    if args.flash and args.model != FLASH_MODEL:
+        raise ValueError("--flash cannot be combined with --model other than deepseek-v4-flash")
+
+    if args.situation_model is None:
+        args.situation_model = FLASH_MODEL if args.flash else SITUATION_GEN_MODEL_DEFAULT
 
     if args.min_turns <= 0:
         raise ValueError("--min-turns must be positive")
@@ -763,9 +796,25 @@ def main() -> None:
         cache_dir = args.turn_cache_dir or (args.out + ".cache")
         ensure_cache_dir(cache_dir)
 
-    persona_thinking_enabled = not args.disable_persona_thinking
-    turn_controller_thinking_enabled = args.enable_turn_controller_thinking
-    actor_thinking_enabled = not args.disable_actor_thinking
+    if args.thinking == "on":
+        persona_thinking_enabled = True
+        turn_controller_thinking_enabled = True
+        actor_thinking_enabled = True
+    elif args.thinking == "off":
+        persona_thinking_enabled = False
+        turn_controller_thinking_enabled = False
+        actor_thinking_enabled = False
+    else:
+        persona_thinking_enabled = True
+        turn_controller_thinking_enabled = False
+        actor_thinking_enabled = True
+
+    if args.disable_persona_thinking:
+        persona_thinking_enabled = False
+    if args.enable_turn_controller_thinking:
+        turn_controller_thinking_enabled = True
+    if args.disable_actor_thinking:
+        actor_thinking_enabled = False
 
     rewrite_ids = expand_id_args(args.rewrite_id)
     if args.rewrite_ids_file:

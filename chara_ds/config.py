@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-DEFAULT_MODEL = "deepseek-v4-pro"
+PRO_MODEL = "deepseek-v4-pro"
+FLASH_MODEL = "deepseek-v4-flash"
+DEFAULT_MODEL = PRO_MODEL
 # Beta endpoint required for `strict: true` tool schemas (and other beta features).
 # The non-beta endpoint will reject `strict: true` with a 400.
 DEFAULT_BASE_URL = "https://api.deepseek.com/beta"

@@ -13,4 +13,5 @@ wheels/
 *.back
 *.txt
 !/prompts/*.txt
+!/prompts_lax/*.txt
 *.cache
