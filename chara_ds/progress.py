@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import threading
@@ -43,6 +44,23 @@ def _compute_static_version() -> str:
 
 
 STATIC_VERSION = _compute_static_version()
+
+
+def _is_client_disconnect(exc: BaseException) -> bool:
+    """Return True for common browser/client disconnect errors.
+
+    Progress polling is best-effort: browsers may cancel an in-flight request
+    when the tab reloads, the page polls again, or Windows security software
+    aborts a localhost connection. These should not surface as server errors.
+    """
+    if isinstance(exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
+        return True
+    if isinstance(exc, OSError):
+        if getattr(exc, "winerror", None) in (10053, 10054, 10058):
+            return True
+        if exc.errno in (errno.EPIPE, errno.ECONNABORTED, errno.ECONNRESET):
+            return True
+    return False
 
 
 PROGRESS_LOCK = threading.Lock()
@@ -372,22 +390,27 @@ class ProgressHandler(BaseHTTPRequestHandler):
         status: int = 200,
         extra_headers: Optional[Dict[str, str]] = None,
     ) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        # Defeat any intermediary cache (nginx, browser, etc.). The
-        # generated HTML also embeds ?v=<STATIC_VERSION> on every static
-        # asset so even badly behaved proxies cannot serve a stale bundle.
-        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Expires", "0")
-        self.send_header("X-Static-Version", STATIC_VERSION)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        if extra_headers:
-            for k, v in extra_headers.items():
-                self.send_header(k, v)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            # Defeat any intermediary cache (nginx, browser, etc.). The
+            # generated HTML also embeds ?v=<STATIC_VERSION> on every static
+            # asset so even badly behaved proxies cannot serve a stale bundle.
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+            self.send_header("X-Static-Version", STATIC_VERSION)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            if extra_headers:
+                for k, v in extra_headers.items():
+                    self.send_header(k, v)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except OSError as exc:
+            if _is_client_disconnect(exc):
+                return
+            raise
 
     def _send_json(self, payload: Any, status: int = 200) -> None:
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -487,9 +510,7 @@ class ProgressHandler(BaseHTTPRequestHandler):
             try:
                 data = file_path.read_bytes()
             except FileNotFoundError:
-                self.send_response(500)
-                self.end_headers()
-                self.wfile.write(b"missing static asset")
+                self._send_bytes(b"missing static asset", "text/plain; charset=utf-8", status=500)
                 return
             if filename.endswith(".html"):
                 # Rewrite static asset URLs so each deploy / restart busts

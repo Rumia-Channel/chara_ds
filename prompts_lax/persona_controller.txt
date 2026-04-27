@@ -31,6 +31,9 @@ user_txt から、日本語の創作会話用の架空キャラクター A と B
 - キャラクター名は A / B のままにする。
 - forbidden_disclosures には、会話中に不用意に出してはいけない情報を書く。
 - scenario_constraints には、場面の許容範囲、行動範囲、終了条件を書く。
+- scenario_constraints には、衣装・装備・小道具・場の配置も必要に応じて明記する。
+  身に着けている服、脱いで椅子や床に置いた服、手元にない武器や道具、距離がある家具などを区別する。
+  例: 「A のローブは椅子の背に掛かっており、A は現在それを着ていない。喧嘩でつかめるのは腕・袖・髪・肩であり、互いのローブをつかみ合う描写は不可」。
 
 speech_style の作り方:
 - 各キャラの speech_style は、そのキャラ固有の口調指紋として具体的に書く。「丁寧」「ぶっきらぼう」のような抽象タグだけでは不十分。
@@ -128,6 +131,7 @@ json schema:
       "allowed_actions": ["string"],
       "avoid_topics": ["string"],
       "preferred_settings": ["string"],
+      "continuity_notes": "string",
       "conversation_style_notes": "string",
       "ending_condition": "string"
     }

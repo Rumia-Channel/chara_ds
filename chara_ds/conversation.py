@@ -56,6 +56,18 @@ def make_public_timeline_event(
     }
 
 
+def latest_scene_state(turns: List[Dict[str, Any]]) -> Optional[str]:
+    """Return the latest controller scene_state saved in turn records."""
+    for turn in reversed(turns):
+        controller = turn.get("controller") if isinstance(turn, dict) else None
+        content = controller.get("content") if isinstance(controller, dict) else None
+        tc = content.get("turn_control") if isinstance(content, dict) else None
+        state = tc.get("scene_state") if isinstance(tc, dict) else None
+        if isinstance(state, str) and state.strip():
+            return state.strip()
+    return None
+
+
 def generate_one_conversation(
     *,
     client: OpenAI,
@@ -166,6 +178,7 @@ def generate_one_conversation(
         }
         start_turn = len(turns) + 1
         early_end = False
+        previous_scene_state = latest_scene_state(turns)
 
         progress_update(
             status="resuming_existing_record",
@@ -200,6 +213,7 @@ def generate_one_conversation(
         }
         start_turn = len(turns) + 1
         early_end = bool(cached.get("early_end"))
+        previous_scene_state = latest_scene_state(turns)
 
         progress_update(
             status="resumed_from_cache",
@@ -282,6 +296,7 @@ def generate_one_conversation(
         }
         start_turn = 1
         early_end = False
+        previous_scene_state = None
 
         if cache_dir:
             save_turn_cache(
@@ -327,6 +342,7 @@ def generate_one_conversation(
                     conversation_id=conversation_id,
                     persona_seed=persona_seed,
                     public_timeline=public_timeline,
+                    previous_scene_state=previous_scene_state,
                     turn_index=turn_index,
                     target_turns=target_turns,
                     reasoning_effort=reasoning_effort,
@@ -346,6 +362,9 @@ def generate_one_conversation(
             )
 
             turn_control = controller_content["turn_control"]
+            state = turn_control.get("scene_state")
+            if isinstance(state, str) and state.strip():
+                previous_scene_state = state.strip()
             speaker = turn_control.get("next_speaker")
 
             if speaker not in ("A", "B"):

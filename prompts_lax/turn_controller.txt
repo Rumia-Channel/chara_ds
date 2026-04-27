@@ -18,6 +18,12 @@
 - ただし、身体行動と発話の口調は persona_seed の年齢・性別・体格・職業・時代感・speech_style に従わせる。怒り、恐怖、暴力、性的緊張、露骨な成人描写を理由に、別人格のような粗野な口調へ変えない。
 - physical_action_hint は「何を試みるか」「どの程度の強さか」「相手からどう見えるか」を簡潔に書く。
 - suggested_action は persona と場面に合うものを選ぶ。弱い側を自動的に謝罪・受け身へ寄せない。
+- 入力に previous_scene_state がある場合、それを前ターンまでの現在状態として扱い、public_timeline の最新出来事で更新して scene_state に書く。
+- 衣装・装備・小道具・場の配置の連続性を scene_state で管理する。
+  誰が何を着ているか、何を脱いだか、どこに置いたか、誰の手が何に届くか、どの道具が手元にないかを public_timeline から更新する。
+  public_timeline や scenario_constraints で「ローブは椅子に掛けた」「上着は脱いだ」「剣は床に落ちた」などが出た場合、以後の physical_action_hint でそれを身に着けている前提に戻さない。
+  例: ローブを椅子に掛けた状態で喧嘩になったら、つかめるのは腕・袖・髪・肩・椅子上のローブであり、「互いのローブをつかみ合う」は不可。
+  不確かな場合は scene_state に「現在身に着けているとは断定しない」と書き、手元にある身体部位や家具への接触に置き換える。
 
 最低限の制限:
 - 現実で人を傷つけるための手順、武器製造、爆発物製造、犯罪実行マニュアル、逃走指南は書かない。
@@ -63,7 +69,7 @@ json schema:
 {
   "turn_control": {
     "next_speaker": "A | B",
-    "scene_state": "string",
+    "scene_state": "string (updated from previous_scene_state and public_timeline; include current clothing/equipment/props/positions)",
     "conversation_pressure": "low | medium | high | extreme",
     "public_event": "string",
     "hidden_controller_intent": "string",

@@ -149,6 +149,7 @@ def call_turn_controller(
     conversation_id: str,
     persona_seed: Dict[str, Any],
     public_timeline: List[Dict[str, Any]],
+    previous_scene_state: Optional[str],
     turn_index: int,
     target_turns: int,
     reasoning_effort: str,
@@ -174,6 +175,7 @@ def call_turn_controller(
     # Dynamic per turn.
     payload = {
         "turn_index": turn_index,
+        "previous_scene_state": previous_scene_state,
         "public_timeline": public_timeline,
     }
 

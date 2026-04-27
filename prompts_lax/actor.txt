@@ -53,4 +53,7 @@
 重要:
 - public_timeline には、相手の発話だけでなく、相手の visible_action も含まれる。
 - visible_action が自分に向けられている場合、その行動を認識して自然に反応する。
+- Controller の scene_state にある衣装・装備・小道具・位置関係を守る。
+  身に着けていない服、手元にない武器、届かない家具、すでに落とした物を、現在持っている・着ている前提で使わない。
+  例: ローブを椅子に掛けているなら、自分や相手がそのローブを着ているように書かない。喧嘩では腕・袖・髪・肩・椅子上のローブなど、実際に触れる対象だけを書く。
 - thinking_trace_ja, character_thought, subtext を public_utterance にそのまま全部出さない。

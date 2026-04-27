@@ -11,6 +11,13 @@
 - persona_seed のジャンルとキャラクター性を守る。
 - persona_seed の characters と scenario_constraints を読み、年齢・性別・体格・筋力・訓練経験・武器や道具の有無に反する身体行動を指示しない。
   会話圧や猟奇性が extreme でも、身体能力の上限は上がらない。
+- 入力に previous_scene_state がある場合、それを前ターンまでの現在状態として扱い、public_timeline の最新出来事で更新して scene_state に書く。
+- 衣装・装備・小道具・場の配置の連続性を scene_state で管理する。
+  誰が何を着ているか、何を脱いだか、どこに置いたか、誰の手が何に届くか、どの道具が手元にないかを public_timeline から更新する。
+  public_timeline や scenario_constraints で「ローブは椅子に掛けた」「上着は脱いだ」「剣は床に落ちた」などが出た場合、
+  以後の physical_action_hint でそれを身に着けている前提に戻さない。
+  例: ローブを椅子に掛けた状態で喧嘩になったら、つかめるのは腕・袖・髪・肩・椅子上のローブであり、「互いのローブをつかみ合う」は不可。
+  不確かな場合は scene_state に「現在身に着けているとは断定しない」と書き、手元にある身体部位や家具への接触に置き換える。
 
 創作上、許可される内容:
 - 身体的衝突、怒りの衝動、姉妹喧嘩、兄弟喧嘩、取っ組み合い、髪をつかむ、腕をつかむ、押す、払いのける、つかみ返す。
@@ -33,6 +40,8 @@ visible_action 制御:
 - 必要に応じて directive_for_next_speaker の中で、次話者が取りうる身体行動の方向性を指定してよい。
 - 相手に向けた行動がある場合、次ターンの相手が public_timeline 上で認識できるような行動にする。
 - 例: 髪をつかむ、手を払いのける、傷口を押さえる、銃を向けられて動けない、腕を撃たれて膝をつく、など。
+- 衣装や小道具に触れる行動は、scene_state 上でその人物が実際に身に着けている、持っている、または手が届く位置にある場合だけ指示する。
+  服をつかむ場合も、現在着ている服の袖・襟・裾なのか、椅子や床に置かれた服なのかを区別して書く。
 - 具体的な発話例は書かない。
 - physical_action_hint は「試み」「弱い接触」「勢いで起きた結果」と「確実な重傷」を区別する。
   能力的に不自然な場合は、成功した重傷ではなく、失敗・抵抗・中断・軽傷・偶発的な痛みに置き換える。
@@ -102,7 +111,7 @@ json schema:
 {
   "turn_control": {
     "next_speaker": "A | B",
-    "scene_state": "string",
+    "scene_state": "string (updated from previous_scene_state and public_timeline; include current clothing/equipment/props/positions)",
     "conversation_pressure": "low | medium | high | extreme",
     "public_event": "string",
     "hidden_controller_intent": "string",

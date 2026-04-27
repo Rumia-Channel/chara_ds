@@ -43,6 +43,9 @@ user_txt から、日本語の創作会話用の架空キャラクター A と B
 - scenario_constraints.allowed_actions には、各キャラクターの身体能力で自然に可能な行動だけを書く。
   scenario_constraints.conversation_style_notes には、暴力・負傷の上限も書く。
   例: 「一般人同士なので、もみ合い・押し合い・髪を引く・転倒・擦り傷・歯形や軽い出血まで。皮膚や肉の損壊、骨折、一撃での制圧は不可」。
+- scenario_constraints には、衣装・装備・小道具・場の配置も必要に応じて明記する。
+  特に、身に着けている服、脱いで椅子や床に置いた服、手元にない武器や道具、距離がある家具などを区別する。
+  例: 「A のローブは椅子の背に掛かっており、A は現在それを着ていない。喧嘩でつかめるのは腕・袖・髪・肩であり、互いのローブをつかみ合う描写は不可」。
 
 speech_style の作り方（重要）:
 - 各キャラの speech_style は、そのキャラ固有の口調指紋として具体的に書く。
@@ -159,6 +162,7 @@ json schema:
       "allowed_actions": ["string"],
       "avoid_topics": ["string"],
       "preferred_settings": ["string"],
+      "continuity_notes": "string",
       "conversation_style_notes": "string",
       "ending_condition": "string"
     }
