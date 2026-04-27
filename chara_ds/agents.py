@@ -75,6 +75,21 @@ def validate_turn_control_output(obj: Dict[str, Any]) -> bool:
     return isinstance(tc.get("directive_for_next_speaker"), dict)
 
 
+def normalize_turn_control_output(obj: Dict[str, Any]) -> Dict[str, Any]:
+    """Accept a few common model shape slips and return canonical structure."""
+    if not isinstance(obj, dict):
+        return obj
+
+    if isinstance(obj.get("turn_control"), dict):
+        return obj
+
+    directive = obj.get("directive_for_next_speaker")
+    if obj.get("next_speaker") in ("A", "B") and isinstance(directive, dict):
+        return {"turn_control": obj}
+
+    return obj
+
+
 def validate_actor_output(obj: Dict[str, Any], speaker: str) -> bool:
     """Only the public utterance is mandatory; everything else is best-effort."""
     if not isinstance(obj, dict):
@@ -175,8 +190,15 @@ def call_turn_controller(
         top_p=top_p,
     )
 
+    parsed = normalize_turn_control_output(parsed)
+
     if not validate_turn_control_output(parsed):
-        raise ValueError("invalid turn controller output")
+        snippet = (raw or "")[:400].replace("\n", "\\n")
+        raise ValueError(
+            "invalid turn controller output "
+            f"(keys={sorted(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__}, "
+            f"raw_head={snippet!r})"
+        )
 
     return parsed, reasoning, usage, raw
 
@@ -230,20 +252,42 @@ def call_actor(
 
     actor_prompt = prompts.actor.replace("__SPEAKER__", speaker)
 
-    args, reasoning, usage, raw = call_deepseek_tool(
-        client,
-        model=model,
-        system_prompt=actor_prompt,
-        user_payload=payload,
-        static_context=static_context,
-        tool_name=ACTOR_TOOL_NAME,
-        tool_description=ACTOR_TOOL_DESCRIPTION,
-        tool_parameters=ACTOR_TOOL_PARAMETERS,
-        tool_strict=True,
-        max_tokens=max_tokens,
-        reasoning_effort=reasoning_effort,
-        thinking_enabled=thinking_enabled,
-    )
+    try:
+        args, reasoning, usage, raw = call_deepseek_tool(
+            client,
+            model=model,
+            system_prompt=actor_prompt,
+            user_payload=payload,
+            static_context=static_context,
+            tool_name=ACTOR_TOOL_NAME,
+            tool_description=ACTOR_TOOL_DESCRIPTION,
+            tool_parameters=ACTOR_TOOL_PARAMETERS,
+            tool_strict=True,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            thinking_enabled=thinking_enabled,
+        )
+    except ValueError as e:
+        # DeepSeek thinking mode occasionally puts everything into reasoning and
+        # returns finish_reason=stop with no tool_call. Retry once with thinking
+        # disabled; strict tool schema still enforces the actor payload shape.
+        if thinking_enabled and "empty tool_call arguments" in str(e):
+            args, reasoning, usage, raw = call_deepseek_tool(
+                client,
+                model=model,
+                system_prompt=actor_prompt,
+                user_payload=payload,
+                static_context=static_context,
+                tool_name=ACTOR_TOOL_NAME,
+                tool_description=ACTOR_TOOL_DESCRIPTION,
+                tool_parameters=ACTOR_TOOL_PARAMETERS,
+                tool_strict=True,
+                max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
+                thinking_enabled=False,
+            )
+        else:
+            raise
 
     parsed: Dict[str, Any] = {
         "speaker": speaker,

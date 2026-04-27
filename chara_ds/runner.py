@@ -114,6 +114,16 @@ def read_jsonl_records(path: str) -> List[Dict[str, Any]]:
     return records
 
 
+def find_duplicate_record_ids(records: List[Dict[str, Any]]) -> Dict[str, List[int]]:
+    positions: Dict[str, List[int]] = {}
+    for pos, record in enumerate(records):
+        cid = record.get("id") or record.get("conversation_id")
+        if not isinstance(cid, str) or not cid:
+            continue
+        positions.setdefault(cid, []).append(pos)
+    return {cid: pos_list for cid, pos_list in positions.items() if len(pos_list) > 1}
+
+
 def rewrite_jsonl_records(path: str, records: List[Dict[str, Any]]) -> None:
     tmp_path = path + ".rewrite.tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
@@ -134,6 +144,26 @@ def persona_line_from_record(record: Dict[str, Any], persona_txt_path: str) -> P
     if not isinstance(sha, str) or not sha:
         sha = sha256_text(text)
     return PersonaLine(line_number=line_number, text=text, sha256=sha)
+
+
+def persona_line_from_current_file(
+    record: Dict[str, Any],
+    persona_lines: List[PersonaLine],
+    persona_txt_path: str,
+) -> PersonaLine:
+    source = record.get("source") or {}
+    line_number = source.get("line_number")
+    if not isinstance(line_number, int) or line_number <= 0:
+        raise ValueError(
+            f"record {record.get('id') or record.get('conversation_id')} has no valid source.line_number"
+        )
+    for item in persona_lines:
+        if item.line_number == line_number:
+            return item
+    raise ValueError(
+        f"source.line_number {line_number} for "
+        f"{record.get('id') or record.get('conversation_id')} not found in {persona_txt_path}"
+    )
 
 
 def expand_id_args(values: Optional[List[str]]) -> List[str]:
@@ -254,6 +284,7 @@ def rewrite_one_conversation_task(
     record_position: int,
     args: argparse.Namespace,
     prompts: PromptBundle,
+    persona_lines: List[PersonaLine],
     errors_out: str,
     persona_thinking_enabled: bool,
     turn_controller_thinking_enabled: bool,
@@ -279,10 +310,15 @@ def rewrite_one_conversation_task(
     if not isinstance(variation, int):
         variation = 1
 
-    persona_line = persona_line_from_record(record, args.persona_txt)
+    if args.rewrite_use_current_persona_txt:
+        persona_line = persona_line_from_current_file(record, persona_lines, args.persona_txt)
+    else:
+        persona_line = persona_line_from_record(record, args.persona_txt)
     client = get_thread_client(args.base_url)
 
     try:
+        if cache_dir:
+            delete_turn_cache(cache_dir, conversation_id)
         rewritten = generate_one_conversation(
             client=client,
             prompts=prompts,
@@ -479,6 +515,30 @@ def parse_args() -> argparse.Namespace:
         "--rewrite-dry-run",
         action="store_true",
         help="Only report records matching --rewrite-id / --rewrite-ids-file; do not call the API or rewrite the jsonl.",
+    )
+    parser.add_argument(
+        "--rewrite-use-current-persona-txt",
+        action="store_true",
+        help=(
+            "In rewrite mode, use the current line text from --persona-txt by "
+            "source.line_number instead of the saved source.text in the jsonl."
+        ),
+    )
+    parser.add_argument(
+        "--rewrite-remove-duplicates",
+        action="store_true",
+        help=(
+            "In rewrite mode, if an id appears multiple times, remove all "
+            "existing records for that id and regenerate exactly one replacement."
+        ),
+    )
+    parser.add_argument(
+        "--rewrite-all-duplicates",
+        action="store_true",
+        help=(
+            "Detect every duplicated id in --out and regenerate exactly one "
+            "replacement per duplicated id. Implies --rewrite-remove-duplicates."
+        ),
     )
     parser.add_argument(
         "--finish-min-turns",
@@ -715,14 +775,33 @@ def main() -> None:
                 if s and not s.startswith("#"):
                     rewrite_ids.append(s)
 
-    if rewrite_ids:
-        requested_ids = set(rewrite_ids)
+    rewrite_mode_requested = bool(rewrite_ids) or bool(args.rewrite_all_duplicates)
+    if rewrite_mode_requested:
         records = read_jsonl_records(args.out)
-        targets = [
-            (pos, rec)
-            for pos, rec in enumerate(records)
-            if (rec.get("id") or rec.get("conversation_id")) in requested_ids
-        ]
+        duplicate_positions = find_duplicate_record_ids(records)
+        if args.rewrite_all_duplicates:
+            rewrite_ids.extend(sorted(duplicate_positions.keys()))
+            args.rewrite_remove_duplicates = True
+
+        requested_ids = set(rewrite_ids)
+        if args.rewrite_remove_duplicates:
+            targets = []
+            for cid in rewrite_ids:
+                pos_list = duplicate_positions.get(cid)
+                if pos_list:
+                    first_pos = pos_list[0]
+                    targets.append((first_pos, records[first_pos]))
+                else:
+                    for pos, rec in enumerate(records):
+                        if (rec.get("id") or rec.get("conversation_id")) == cid:
+                            targets.append((pos, rec))
+                            break
+        else:
+            targets = [
+                (pos, rec)
+                for pos, rec in enumerate(records)
+                if (rec.get("id") or rec.get("conversation_id")) in requested_ids
+            ]
         found_ids = {
             str(rec.get("id") or rec.get("conversation_id"))
             for _, rec in targets
@@ -740,6 +819,10 @@ def main() -> None:
                             "target_turns": (rec.get("generation_config") or {}).get("target_turns"),
                             "source_line_number": (rec.get("source") or {}).get("line_number"),
                             "variation": (rec.get("source") or {}).get("variation"),
+                            "duplicate_positions": duplicate_positions.get(
+                                str(rec.get("id") or rec.get("conversation_id")),
+                                [],
+                            ),
                         },
                         ensure_ascii=False,
                     ),
@@ -753,6 +836,8 @@ def main() -> None:
                         "requested": len(requested_ids),
                         "targets": len(targets),
                         "missing_ids": missing_ids,
+                        "rewrite_remove_duplicates": args.rewrite_remove_duplicates,
+                        "rewrite_use_current_persona_txt": args.rewrite_use_current_persona_txt,
                     },
                     ensure_ascii=False,
                 ),
@@ -831,6 +916,7 @@ def main() -> None:
                         record_position=pos,
                         args=args,
                         prompts=prompts,
+                        persona_lines=persona_lines,
                         errors_out=errors_out,
                         persona_thinking_enabled=persona_thinking_enabled,
                         turn_controller_thinking_enabled=turn_controller_thinking_enabled,
@@ -876,6 +962,7 @@ def main() -> None:
                             record_position=pos,
                             args=args,
                             prompts=prompts,
+                            persona_lines=persona_lines,
                             errors_out=errors_out,
                             persona_thinking_enabled=persona_thinking_enabled,
                             turn_controller_thinking_enabled=turn_controller_thinking_enabled,
@@ -916,8 +1003,25 @@ def main() -> None:
                         if args.sleep > 0:
                             time.sleep(args.sleep)
 
-        for pos, rec in replacements.items():
-            records[pos] = rec
+        if args.rewrite_remove_duplicates:
+            replacement_by_id = {
+                str(rec.get("id") or rec.get("conversation_id")): rec
+                for rec in replacements.values()
+            }
+            new_records: List[Dict[str, Any]] = []
+            inserted_ids: set[str] = set()
+            for rec in records:
+                cid = rec.get("id") or rec.get("conversation_id")
+                if cid in replacement_by_id:
+                    if cid not in inserted_ids:
+                        new_records.append(replacement_by_id[str(cid)])
+                        inserted_ids.add(str(cid))
+                    continue
+                new_records.append(rec)
+            records = new_records
+        else:
+            for pos, rec in replacements.items():
+                records[pos] = rec
         rewrite_jsonl_records(args.out, records)
         sort_jsonl_by_conversation_id(args.out)
 
