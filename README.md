@@ -135,7 +135,7 @@ uv run python main.py `
 
 `prompts_lax/` は、口調・年齢・性別・身体能力の整合性制御は維持しつつ、成人同士の合意ある露骨な性描写を含みうる関係、性的緊張、暗い感情など、創作上の自由度を削りやすいブロックを減らした版です。合意のない性行為・性的強制・性的搾取の露骨描写、現実の犯罪手順、未成年の性的描写などは境界として残しています。
 
-お題の自動生成も lax 版にする場合は、`gen_situations.py` では `--prompt-file .\prompts_lax\situation_gen.txt`、`main.py --auto-generate-situations` では `--situation-prompt-file .\prompts_lax\situation_gen.txt` を指定してください。
+`--prompt-dir .\prompts_lax` を指定すると、会話生成用の `persona_controller.txt` / `turn_controller.txt` / `actor.txt` だけでなく、`main.py --auto-generate-situations` の `situation_gen.txt` も同じディレクトリから読みます。`gen_situations.py` 単体でも `--prompt-dir .\prompts_lax` を指定すれば lax 版の `situation_gen.txt` を使います。
 
 ## お題の自動生成
 
@@ -417,7 +417,7 @@ uv run python main.py `
 
 `prompts_lax/` keeps speech-style, age, gender, and physical-plausibility controls, while reducing blocks that limit creative freedom around consensual adult explicit sexual relationships, adult sexual tension, and darker emotions. It still keeps boundaries for explicit non-consensual sexual content, sexual coercion/exploitation, real-world criminal instructions, and sexual content involving minors.
 
-To use the lax prompt for situation generation too, pass `--prompt-file .\prompts_lax\situation_gen.txt` to `gen_situations.py`, or `--situation-prompt-file .\prompts_lax\situation_gen.txt` when using `main.py --auto-generate-situations`.
+When `--prompt-dir .\prompts_lax` is set, `main.py --auto-generate-situations` also reads `situation_gen.txt` from that same directory. For standalone `gen_situations.py`, pass `--prompt-dir .\prompts_lax` to use the lax situation prompt.
 
 Open:
 

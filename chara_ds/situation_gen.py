@@ -256,7 +256,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--out", default="./format.txt",
                         help="Append generated situations here (one per line).")
-    parser.add_argument("--prompt-file", default="./prompts/situation_gen.txt")
+    parser.add_argument("--prompt-dir", default="./prompts",
+                        help="Prompt directory. Used for situation_gen.txt when --prompt-file is omitted.")
+    parser.add_argument("--prompt-file", default=None,
+                        help="Prompt file. Defaults to <prompt-dir>/situation_gen.txt.")
     parser.add_argument("--seed-situation", action="append", default=[],
                         help="User-provided seed situation. Repeatable.")
     parser.add_argument("--seed-file", default=None,
@@ -303,8 +306,9 @@ def gather_seeds(args: argparse.Namespace, existing: List[str]) -> List[str]:
 def main() -> None:
     args = parse_args()
     errors_out = args.errors_out or args.out + ".gen_errors.jsonl"
+    prompt_file = args.prompt_file or str(Path(args.prompt_dir) / "situation_gen.txt")
 
-    system_prompt = read_text(args.prompt_file).strip()
+    system_prompt = read_text(prompt_file).strip()
     client = make_client(args.base_url)
 
     existing = load_existing_lines(args.out)
@@ -319,6 +323,7 @@ def main() -> None:
             "out": args.out,
             "model": args.model,
             "base_url": args.base_url,
+            "prompt_file": prompt_file,
             "target": args.target,
             "already": len(existing),
             "batch_size": args.batch_size,

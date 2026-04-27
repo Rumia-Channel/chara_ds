@@ -689,7 +689,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--situation-prompt-file",
-        default="./prompts/situation_gen.txt",
+        default=None,
+        help=(
+            "Prompt file for the background situation producer. "
+            "Defaults to <prompt-dir>/situation_gen.txt."
+        ),
     )
     parser.add_argument("--situation-temperature", type=float, default=1.1)
     parser.add_argument("--situation-top-p", type=float, default=0.95)
@@ -720,6 +724,8 @@ def main() -> None:
 
     if args.situation_model is None:
         args.situation_model = FLASH_MODEL if args.flash else SITUATION_GEN_MODEL_DEFAULT
+    if args.situation_prompt_file is None:
+        args.situation_prompt_file = os.path.join(args.prompt_dir, "situation_gen.txt")
 
     if args.min_turns <= 0:
         raise ValueError("--min-turns must be positive")
