@@ -68,6 +68,31 @@ def latest_scene_state(turns: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
+def normalize_persona_labels(persona_seed: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep dataset speaker labels as A/B and drop invented name fields."""
+    if not isinstance(persona_seed, dict):
+        return persona_seed
+
+    characters = persona_seed.get("characters")
+    if not isinstance(characters, dict):
+        return persona_seed
+
+    for label in ("A", "B"):
+        profile = characters.get(label)
+        if not isinstance(profile, dict):
+            continue
+        for key in (
+            "name",
+            "full_name",
+            "display_name",
+            "nickname",
+            "given_name",
+            "family_name",
+        ):
+            profile.pop(key, None)
+    return persona_seed
+
+
 def generate_one_conversation(
     *,
     client: OpenAI,
@@ -169,6 +194,8 @@ def generate_one_conversation(
         persona_usage = persona_generation.get("usage") or {}
         persona_raw = persona_generation.get("raw_content") or ""
         persona_seed = existing_record.get("persona_seed") or persona_content.get("persona_seed") or {}
+        persona_seed = normalize_persona_labels(persona_seed)
+        persona_content["persona_seed"] = persona_seed
         public_timeline = list(existing_record.get("public_timeline") or [])
         turns = list(existing_record.get("turns") or [])
         usage_summary = existing_record.get("usage") or {
@@ -204,6 +231,8 @@ def generate_one_conversation(
         persona_usage = cached.get("persona_usage") or {}
         persona_raw = cached.get("persona_raw") or ""
         persona_seed = persona_content["persona_seed"]
+        persona_seed = normalize_persona_labels(persona_seed)
+        persona_content["persona_seed"] = persona_seed
         public_timeline: List[Dict[str, Any]] = list(cached.get("public_timeline") or [])
         turns: List[Dict[str, Any]] = list(cached.get("turns") or [])
         usage_summary: Dict[str, Any] = cached.get("usage_summary") or {
@@ -275,7 +304,8 @@ def generate_one_conversation(
             retry_base_sleep=retry_base_sleep,
         )
 
-        persona_seed = persona_content["persona_seed"]
+        persona_seed = normalize_persona_labels(persona_content["persona_seed"])
+        persona_content["persona_seed"] = persona_seed
 
         progress_update(
             status="persona_controller_done",

@@ -351,8 +351,8 @@ def _summarize_record(rec: Dict[str, Any]) -> Dict[str, Any]:
         persona_a = persona.get("A") or {}
         persona_b = persona.get("B") or {}
         persona_summary = {
-            "A": (persona_a or {}).get("name") if isinstance(persona_a, dict) else None,
-            "B": (persona_b or {}).get("name") if isinstance(persona_b, dict) else None,
+            "A": (persona_a or {}).get("role") if isinstance(persona_a, dict) else None,
+            "B": (persona_b or {}).get("role") if isinstance(persona_b, dict) else None,
         }
     else:
         persona_summary = None

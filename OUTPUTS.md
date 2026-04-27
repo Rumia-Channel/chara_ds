@@ -35,7 +35,7 @@
 |---|---:|---|
 | `id` | string | 会話ID。例: `persona_deepseek_triple_ja_00000001`。 |
 | `dataset` | string | データセット名。現在値: `persona_controlled_deepseek_triple_agent_ja`。 |
-| `schema_version` | string | スキーマバージョン。現在値: `13.0`。 |
+| `schema_version` | string | スキーマバージョン。現在値: `13.1`。 |
 | `created_at` | string | UTC の ISO タイムスタンプ。 |
 | `synthetic` | bool | 合成データを示す値。常に `true`。 |
 | `language` | string | 言語コード。現在値: `ja`。 |
@@ -81,7 +81,20 @@
 | `global_style` | ジャンル、地域、トーン。 |
 | `characters.A` / `characters.B` | 各話者のキャラクタープロフィール。 |
 | `relationship` | 関係性、過去、距離感、隠れた緊張。 |
-| `scenario_constraints` | 場所、許可される話題や行動、避ける話題、文体メモ、終了条件。 |
+| `scenario_constraints` | 場所、許可される話題や行動、避ける話題、衣装・装備・小道具・位置関係の連続性メモ、文体メモ、終了条件。 |
+
+`scenario_constraints` には、必要に応じて `continuity_notes` が含まれます。これは、初期状態の衣装、装備、小道具、家具、距離、手元にある/ない物などを記録するためのメモです。
+
+例:
+
+```json
+{
+  "setting": "魔術学院の空き教室",
+  "allowed_actions": ["腕をつかむ", "椅子を引く", "床に落ちた杖へ視線を向ける"],
+  "continuity_notes": "A のローブは椅子の背に掛かっており、A は現在それを着ていない。B の杖は床に落ちていて、すぐには手元にない。",
+  "conversation_style_notes": "喧嘩になっても、現在着ていないローブをつかみ合う描写は避ける。"
+}
+```
 
 各キャラクターには通常、以下のフィールドが含まれます。
 
@@ -112,7 +125,7 @@
     "content": {
       "turn_control": {
         "next_speaker": "A",
-        "scene_state": "...",
+        "scene_state": "A のローブは椅子の背に掛かったまま。B の杖は床に落ちており、B の手元にはない。互いに机を挟んで立っている。",
         "conversation_pressure": "medium",
         "public_event": "...",
         "hidden_controller_intent": "...",
@@ -159,6 +172,8 @@
 補足:
 
 - `controller.content.turn_control` は、次の話者と会話の展開方針を決めます。
+- `controller.content.turn_control.scene_state` は、その時点の場面状態です。会話圧だけでなく、衣装、装備、小道具、家具、距離、手元にある/ない物などの連続性を含む場合があります。
+- `scene_state` は各ターンで更新されます。たとえば、ローブを椅子に掛けた、上着を脱いだ、武器を床に落とした、机を挟んで距離がある、などの状態が次ターン以降の行動制御に使われます。
 - `actor.content.public_utterance` は、実際に発話された台詞です。
 - `actor.content.physical_action` は、そのターンの可視行動または身体動作です。
 - `actor.content.character_thought`、`thinking_trace_ja`、`subtext` は内部生成用の非公開フィールドです。
@@ -269,6 +284,7 @@ with open("persona_dialogues.jsonl", encoding="utf-8") as f:
 - このデータセットは DeepSeek を用いた LLM エージェントによって生成された合成データです。
 - 一部のレコードには `subtext`、`character_thought`、`reasoning_content` などの内部/非公開フィールドが含まれます。
 - `public_transcript` には可視行動が含まれません。行動も必要な場合は `public_timeline` を使ってください。
+- 衣装・装備・小道具・位置関係の連続性を利用する場合は、`turns[].controller.content.turn_control.scene_state` と `persona_seed.scenario_constraints.continuity_notes` を参照してください。`public_timeline` には発話と可視行動のみが入ります。
 - `source.text` は後から編集された `format.txt` と異なる場合があります。JSONL には生成時点のお題文が保存されます。
 - トークン使用量フィールドはプロバイダー依存のメタデータとして扱ってください。
 
@@ -307,7 +323,7 @@ Top-level fields:
 |---|---:|---|
 | `id` | string | Stable conversation ID, e.g. `persona_deepseek_triple_ja_00000001`. |
 | `dataset` | string | Dataset name. Current value: `persona_controlled_deepseek_triple_agent_ja`. |
-| `schema_version` | string | Schema version. Current value: `13.0`. |
+| `schema_version` | string | Schema version. Current value: `13.1`. |
 | `created_at` | string | UTC ISO timestamp. |
 | `synthetic` | bool | Always `true`; generated data. |
 | `language` | string | Language code. Current value: `ja`. |
@@ -353,7 +369,20 @@ Important subfields:
 | `global_style` | Genre, locale, and tone. |
 | `characters.A` / `characters.B` | Character profiles for each speaker. |
 | `relationship` | Relationship type, history, distance, and hidden tension. |
-| `scenario_constraints` | Setting, allowed topics/actions, avoid topics, style notes, and ending condition. |
+| `scenario_constraints` | Setting, allowed topics/actions, avoid topics, continuity notes for clothing/equipment/props/positions, style notes, and ending condition. |
+
+`scenario_constraints` may include `continuity_notes`. This field records initial continuity-relevant state such as clothing, equipment, props, furniture, distance, and items that are or are not currently at hand.
+
+Example:
+
+```json
+{
+  "setting": "an empty classroom at a magic academy",
+  "allowed_actions": ["grab an arm", "pull a chair", "glance at the wand on the floor"],
+  "continuity_notes": "A's robe is hanging on the back of a chair, so A is not currently wearing it. B's wand has fallen to the floor and is not immediately in B's hand.",
+  "conversation_style_notes": "If a fight starts, avoid describing both characters as grabbing each other's robes when the robe is not being worn."
+}
+```
 
 Each character usually contains:
 
@@ -384,7 +413,7 @@ Each element has approximately this shape:
     "content": {
       "turn_control": {
         "next_speaker": "A",
-        "scene_state": "...",
+        "scene_state": "A's robe is still hanging on the back of the chair. B's wand is on the floor and not in B's hand. They are standing with a desk between them.",
         "conversation_pressure": "medium",
         "public_event": "...",
         "hidden_controller_intent": "...",
@@ -431,6 +460,8 @@ Each element has approximately this shape:
 Notes:
 
 - `controller.content.turn_control` decides the next speaker and dramatic direction.
+- `controller.content.turn_control.scene_state` is the current scene state. It may include continuity for clothing, equipment, props, furniture, distance, and items that are or are not currently at hand.
+- `scene_state` is updated every turn. For example, a robe hanging on a chair, a jacket being removed, a weapon falling to the floor, or a desk separating the characters can constrain later physical actions.
 - `actor.content.public_utterance` is the spoken line.
 - `actor.content.physical_action` is visible or bodily action for that turn.
 - `actor.content.character_thought`, `thinking_trace_ja`, and `subtext` are private/internal generation fields, not public dialogue.
@@ -541,5 +572,6 @@ This cost depends on the campaign price available at generation time, prompt str
 - The dataset is synthetic and generated by DeepSeek-based LLM agents.
 - Some records include internal/private fields such as `subtext`, `character_thought`, and `reasoning_content`.
 - `public_transcript` excludes visible actions; use `public_timeline` if actions matter.
+- If you need continuity for clothing, equipment, props, or positions, use `turns[].controller.content.turn_control.scene_state` and `persona_seed.scenario_constraints.continuity_notes`. `public_timeline` only contains utterances and visible actions.
 - `source.text` may differ from a later edited `format.txt`; the JSONL stores the source text used for generation.
 - Token usage fields are provider-specific and should be treated as metadata.

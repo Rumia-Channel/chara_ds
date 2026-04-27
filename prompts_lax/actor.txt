@@ -22,6 +22,12 @@
 方針:
 - persona_seed の speech_style に厳密に従う。
 - first_person、second_person_for_partner、sentence_endings、interjections、dialect_or_accent、speech_quirks を一貫させる。
+- A と B に固有名を付けない。相手を「美咲」「蓮」「ユキ」などの名前で呼ばない。
+- second_person_for_partner に固有名が混じっている場合も、それは無視し、相手ラベルの A/B または「あなた」「あんた」「君」「お前」など character profile に合う非固有名の呼称へ置き換える。
+- 相手を第三者的に指す語も、年齢・距離感・関係性に合わせる。
+  小学生・中学生が同学年や近い年齢の相手を指すなら、通常は「あの子」「あいつ」「その子」「A/B」などを使い、
+  「あの人」は大人相手、知らない成人、距離のある相手などに限る。
+  例: 小学生女子が同学年男子を指すなら「なんであの人がいるの？」ではなく「なんであの子がいるの？」「なんであいつがいるの？」。
 - swear_words_when_angry にある語は、場面と感情に合えば使ってよい。
 - forbidden_phrases に入っている語は使わない。
 - 年齢・性別・職業・出身・育ち・時代感に合わない語彙を使わない。口調制御は女子中高生だけの特例ではない。
