@@ -21,7 +21,9 @@ from .api_client import get_thread_client
 from .config import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
+    DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
     FLASH_MODEL,
+    PRO_MODEL,
     PersonaLine,
     PromptBundle,
 )
@@ -624,7 +626,7 @@ def parse_args() -> argparse.Namespace:
             "explain age/body/tone inconsistencies back to the actor and rewrite the turn."
         ),
     )
-    parser.add_argument("--actor-guard-model", default=FLASH_MODEL)
+    parser.add_argument("--actor-guard-model", default=PRO_MODEL)
     parser.add_argument(
         "--actor-guard-thinking",
         choices=["default", "on", "off"],
@@ -638,26 +640,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--persona-max-tokens",
         type=int,
-        default=0,
-        help="0 means omit max_tokens for persona controller.",
+        default=DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
+        help="Defaults to DeepSeek V4 max output (384K). 0 means omit max_tokens for persona controller.",
     )
     parser.add_argument(
         "--controller-max-tokens",
         type=int,
-        default=0,
-        help="0 means omit max_tokens for turn controller.",
+        default=DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
+        help="Defaults to DeepSeek V4 max output (384K). 0 means omit max_tokens for turn controller.",
     )
     parser.add_argument(
         "--actor-max-tokens",
         type=int,
-        default=0,
-        help="0 means omit max_tokens for actor.",
+        default=DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
+        help="Defaults to DeepSeek V4 max output (384K). 0 means omit max_tokens for actor.",
     )
     parser.add_argument(
         "--actor-guard-max-tokens",
         type=int,
-        default=512,
-        help="0 means omit max_tokens for actor guard.",
+        default=DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
+        help="Defaults to DeepSeek V4 max output (384K). 0 means omit max_tokens for actor guard.",
     )
 
     parser.add_argument("--seed", type=int, default=20260426)
@@ -736,7 +738,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--situation-temperature", type=float, default=1.1)
     parser.add_argument("--situation-top-p", type=float, default=0.95)
-    parser.add_argument("--situation-max-tokens", type=int, default=0)
+    parser.add_argument("--situation-max-tokens", type=int, default=DEEPSEEK_V4_MAX_OUTPUT_TOKENS)
     parser.add_argument(
         "--situation-seed",
         action="append",
