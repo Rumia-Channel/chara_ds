@@ -30,3 +30,7 @@ class PromptBundle:
     turn_controller: str
     actor: str
     actor_guard: str
+    age_gender_norms: str
+    age_gender_norms_dir: str
+    age_gender_norms_index: dict
+    age_gender_norms_sha256: str

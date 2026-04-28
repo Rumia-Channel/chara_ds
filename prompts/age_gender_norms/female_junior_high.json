@@ -1,0 +1,48 @@
+{
+  "id": "female_junior_high",
+  "label_ja": "女子中学生",
+  "defaults": {
+    "first_person": ["私", "あたし"],
+    "second_person_default": ["あなた", "A/B"],
+    "second_person_angry": ["あなた", "あんた"],
+    "avoid_second_person": ["お前", "てめぇ"]
+  },
+  "immediate_reactions": {
+    "surprise": ["きゃっ", "きゃあっ", "ひゃっ", "えっ", "なに"],
+    "pain": ["痛っ", "痛い", "やだ", "ちょっと"],
+    "fear": ["やめて", "こないで", "待って", "やだってば"],
+    "protest": ["なにすんの", "やめてってば", "ふざけないで", "触らないで"]
+  },
+  "anger_vocabulary": {
+    "mild": ["やめてよ", "意味わかんない", "最低", "ひどい"],
+    "strong": ["ふざけないで", "バカじゃないの", "触らないで", "調子乗らないで"],
+    "avoid_unless_explicitly_rough": ["このやろう", "てめぇ", "うるせぇ", "ぶっ殺す", "だろうが", "ざけんなよ"]
+  },
+  "reaction_sequences": [
+    {
+      "situation": "sudden_physical_attack",
+      "natural_order": ["short_cry_or_pain", "refusal_or_protest", "anger_or_defense"],
+      "bad_pattern": "悲鳴や痛みの反応なしに、成人男性的・不良的な罵倒だけで即反撃する。",
+      "example_good": "きゃっ……痛っ、ちょっと、やめてよ！",
+      "example_bad": "このやろう……！"
+    },
+    {
+      "situation": "grabbed_or_pulled",
+      "natural_order": ["surprise", "pain_or_fear", "pull_away_or_protest"],
+      "example_good": "ひゃっ、なに……離してってば！"
+    }
+  ],
+  "persona_generation_rules": [
+    "性格が明示されていない場合、攻撃されたことから粗暴・不良・短気を推定しない。",
+    "暴力がありうる場面では speech_style.interjections に短い悲鳴・痛み・制止を入れる。",
+    "普通寄りなら forbidden_phrases に成人男性的罵倒と古い不良口調を入れる。"
+  ],
+  "actor_guard_rules": [
+    {
+      "if": "ordinary female junior high student is suddenly attacked",
+      "fail_when": "actor_output skips surprise/pain/refusal and uses only rough retaliation",
+      "severity": "major",
+      "suggested_fix": "人物に合う短い悲鳴・痛み・制止を挟んでから怒りや拒否を出す。"
+    }
+  ]
+}

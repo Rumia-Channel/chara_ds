@@ -1,0 +1,39 @@
+{
+  "id": "adult_female",
+  "label_ja": "成人女性",
+  "defaults": {
+    "first_person": ["私", "あたし"],
+    "second_person_default": ["あなた", "A/B"],
+    "second_person_angry": ["あなた", "あんた"],
+    "avoid_second_person": ["てめぇ"]
+  },
+  "immediate_reactions": {
+    "surprise": ["きゃっ", "えっ", "ちょっと"],
+    "pain": ["痛っ", "痛い", "やめて"],
+    "fear": ["やめて", "離して", "待って"],
+    "protest": ["何するの", "ふざけないで", "触らないで"]
+  },
+  "anger_vocabulary": {
+    "mild": ["やめて", "ひどい", "何するの"],
+    "strong": ["ふざけないで", "いい加減にして", "触らないで"],
+    "avoid_unless_explicitly_rough": ["てめぇ", "うるせぇ", "ぶっ殺す"]
+  },
+  "reaction_sequences": [
+    {
+      "situation": "sudden_physical_attack",
+      "natural_order": ["short_cry_or_pain", "refusal", "anger_or_boundary"],
+      "example_good": "痛っ……ちょっと、何するの。やめて。"
+    }
+  ],
+  "persona_generation_rules": [
+    "成人女性は性格・職業で幅があるが、普通寄りなら強すぎる男性口調にしない。"
+  ],
+  "actor_guard_rules": [
+    {
+      "if": "ordinary adult female is suddenly attacked",
+      "fail_when": "no pain/surprise and only rough masculine threat",
+      "severity": "major",
+      "suggested_fix": "痛み・驚き・拒否を自然に挟む。"
+    }
+  ]
+}

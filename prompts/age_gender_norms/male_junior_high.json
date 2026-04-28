@@ -1,0 +1,39 @@
+{
+  "id": "male_junior_high",
+  "label_ja": "男子中学生",
+  "defaults": {
+    "first_person": ["俺", "僕"],
+    "second_person_default": ["お前", "あなた", "A/B"],
+    "second_person_angry": ["お前"],
+    "avoid_second_person": ["てめぇ"]
+  },
+  "immediate_reactions": {
+    "surprise": ["うわっ", "えっ", "ちょっ"],
+    "pain": ["痛っ", "痛え", "やめろって"],
+    "fear": ["待てよ", "やめろよ"],
+    "protest": ["なにすんだよ", "ふざけんな", "やめろって"]
+  },
+  "anger_vocabulary": {
+    "mild": ["意味わかんねえ", "やめろよ", "なんだよ"],
+    "strong": ["ふざけんな", "調子乗んな", "やめろって言ってんだろ"],
+    "avoid_unless_explicitly_rough": ["てめぇ", "ぶっ殺す", "殺してやる", "だろうがよ"]
+  },
+  "reaction_sequences": [
+    {
+      "situation": "sudden_physical_attack",
+      "natural_order": ["surprise_or_pain", "protest", "defense_or_anger"],
+      "example_good": "うわっ、痛っ……なにすんだよ、やめろって！"
+    }
+  ],
+  "persona_generation_rules": [
+    "男子中学生は軽い粗さが自然な場合があるが、明示なしに成人の荒事慣れした脅しにしない。"
+  ],
+  "actor_guard_rules": [
+    {
+      "if": "ordinary male junior high student is attacked",
+      "fail_when": "uses hardened adult criminal threat without surprise/pain",
+      "severity": "major",
+      "suggested_fix": "驚きや痛みを挟み、中学生相応の抗議に戻す。"
+    }
+  ]
+}

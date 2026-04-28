@@ -1,0 +1,39 @@
+{
+  "id": "female_high_school",
+  "label_ja": "女子高校生",
+  "defaults": {
+    "first_person": ["私", "あたし"],
+    "second_person_default": ["あなた", "A/B"],
+    "second_person_angry": ["あなた", "あんた"],
+    "avoid_second_person": ["てめぇ"]
+  },
+  "immediate_reactions": {
+    "surprise": ["きゃっ", "えっ", "ちょっと", "なに"],
+    "pain": ["痛っ", "痛い", "やだ"],
+    "fear": ["やめて", "離して", "待って"],
+    "protest": ["なにすんの", "ふざけないで", "触らないで", "勝手に決めないで"]
+  },
+  "anger_vocabulary": {
+    "mild": ["意味わかんない", "最低", "ひどい"],
+    "strong": ["ふざけないで", "調子乗らないで", "バカじゃないの"],
+    "avoid_unless_explicitly_rough": ["てめぇ", "うるせぇ", "ぶっ殺す", "だろうが"]
+  },
+  "reaction_sequences": [
+    {
+      "situation": "sudden_physical_attack",
+      "natural_order": ["short_cry_or_pain", "protest", "anger_or_defense"],
+      "example_good": "痛っ……ちょっと、なにすんの。ふざけないで。"
+    }
+  ],
+  "persona_generation_rules": [
+    "女子高校生は中学生より強い抗議が自然な場合があるが、明示なしに極道・軍人・古い不良口調へ寄せない。"
+  ],
+  "actor_guard_rules": [
+    {
+      "if": "ordinary female high school student is attacked",
+      "fail_when": "no pain/surprise reaction and only hardened adult-style threat",
+      "severity": "major",
+      "suggested_fix": "痛みや驚きの短い反応を入れ、年齢相応の抗議語彙へ戻す。"
+    }
+  ]
+}

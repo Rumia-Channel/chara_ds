@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .config import PersonaLine, PromptBundle
+from .norms import hash_norm_source, load_norm_index
 
 
 JSONL_WRITE_LOCK = threading.Lock()
@@ -36,11 +37,14 @@ def read_text(path: str) -> str:
 
 def load_prompts(prompt_dir: str) -> PromptBundle:
     base = Path(prompt_dir)
+    norm_dir = base / "age_gender_norms"
+    legacy_norms = base / "age_gender_norms.txt"
     files = {
         "persona_controller": base / "persona_controller.txt",
         "turn_controller": base / "turn_controller.txt",
         "actor": base / "actor.txt",
         "actor_guard": base / "actor_guard.txt",
+        "age_gender_norms": legacy_norms,
     }
 
     required_keys = ("persona_controller", "turn_controller", "actor")
@@ -48,6 +52,8 @@ def load_prompts(prompt_dir: str) -> PromptBundle:
     if missing:
         raise FileNotFoundError(f"missing prompt files: {missing}")
 
+    legacy_norm_text = read_text(str(legacy_norms)).strip() if legacy_norms.exists() else ""
+    norm_index = load_norm_index(norm_dir)
     return PromptBundle(
         persona_controller=read_text(str(files["persona_controller"])).strip(),
         turn_controller=read_text(str(files["turn_controller"])).strip(),
@@ -55,6 +61,10 @@ def load_prompts(prompt_dir: str) -> PromptBundle:
         actor_guard=read_text(str(files["actor_guard"])).strip()
         if files["actor_guard"].exists()
         else "",
+        age_gender_norms=legacy_norm_text,
+        age_gender_norms_dir=str(norm_dir) if norm_dir.exists() else "",
+        age_gender_norms_index=norm_index,
+        age_gender_norms_sha256=hash_norm_source(norm_dir, legacy_norm_text),
     )
 
 

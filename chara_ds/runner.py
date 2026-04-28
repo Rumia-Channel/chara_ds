@@ -279,6 +279,7 @@ def backfill_short_records_to_cache(
                     "turn_controller_sha256": sha256_text(prompts.turn_controller),
                     "actor_sha256": sha256_text(prompts.actor),
                     "actor_guard_sha256": sha256_text(prompts.actor_guard),
+                    "age_gender_norms_sha256": prompts.age_gender_norms_sha256,
                 },
             }
         )
@@ -1802,6 +1803,7 @@ def main() -> None:
             "persona_controller_sha256": sha256_text(prompts.persona_controller),
             "turn_controller_sha256": sha256_text(prompts.turn_controller),
             "actor_sha256": sha256_text(prompts.actor),
+            "age_gender_norms_sha256": prompts.age_gender_norms_sha256,
         },
     }
 
