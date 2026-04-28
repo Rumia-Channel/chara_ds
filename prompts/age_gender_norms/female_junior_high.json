@@ -13,6 +13,16 @@
     "fear": ["やめて", "こないで", "待って", "やだってば"],
     "protest": ["なにすんの", "やめてってば", "ふざけないで", "触らないで"]
   },
+  "emotional_reactions": {
+    "joy": ["やった", "ほんと？", "うれしい", "えへへ"],
+    "sadness": ["やだな", "なんで", "もういい", "泣いてないし"],
+    "embarrassment": ["ちょっと", "見ないで", "別にそういうんじゃないし", "やめてよ"],
+    "confusion": ["え、なに", "どういうこと", "ちょっと待って", "意味わかんない"],
+    "relief": ["よかった", "びっくりした", "もう、心配したじゃん"],
+    "jealousy": ["別に気にしてないし", "ふーん", "なんかむかつく"],
+    "apology": ["ごめん", "言いすぎた", "そんなつもりじゃなかった"],
+    "gratitude": ["ありがと", "助かった", "……うれしい"]
+  },
   "anger_vocabulary": {
     "mild": ["やめてよ", "意味わかんない", "最低", "ひどい"],
     "strong": ["ふざけないで", "バカじゃないの", "触らないで", "調子乗らないで"],
@@ -32,9 +42,22 @@
       "example_good": "ひゃっ、なに……離してってば！"
     }
   ],
+  "scene_reaction_guides": [
+    {
+      "situation": "praised_or_kindness_received",
+      "natural_order": ["brief_surprise", "embarrassed_denial_or_small_thanks", "softened_followup"],
+      "example_good": "えっ……ありがと。別に、そんな大げさに言わなくてもいいけど。"
+    },
+    {
+      "situation": "sad_disappointment",
+      "natural_order": ["short_silence", "small_denial_or_hurt", "age_appropriate_words"],
+      "example_good": "……別に平気。ちょっと、思ってたのと違っただけ。"
+    }
+  ],
   "persona_generation_rules": [
     "性格が明示されていない場合、攻撃されたことから粗暴・不良・短気を推定しない。",
     "暴力がありうる場面では speech_style.interjections に短い悲鳴・痛み・制止を入れる。",
+    "喜び・悲しみ・照れ・困惑も、成人的な色気や過度な達観ではなく年齢相応の短い反応を基本にする。",
     "普通寄りなら forbidden_phrases に成人男性的罵倒と古い不良口調を入れる。"
   ],
   "actor_guard_rules": [

@@ -256,7 +256,7 @@
 | `actor_guard_enabled` / `actor_guard_model` | `--actor-guard` 使用時の第三者監視役設定。 |
 | `max_tokens_policy` | ペルソナ、コントローラー、アクター、アクターガード呼び出しの最大トークン設定。既定は DeepSeek V4 最大出力の 384K で、`0` または `None` は API へ `max_tokens` を送らないことを意味します。 |
 
-`prompt_hashes.age_gender_norms_sha256` は、`prompt_dir/age_gender_norms/` がある場合はその JSON 群、なければ `prompt_dir/age_gender_norms.txt` の hash です。Persona Controller と Actor Guard には、全データではなく現在の入力・speaker に近い属性だけが `age_gender_norms_selected` として渡されます。普通寄りの人物の悲鳴、痛み、制止、怒り語彙の基準に使われます。
+`prompt_hashes.age_gender_norms_sha256` は、`prompt_dir/age_gender_norms/` がある場合はその JSON 群、なければ `prompt_dir/age_gender_norms.txt` の hash です。Persona Controller と Actor Guard には、全データではなく現在の入力・speaker に近い属性だけが `age_gender_norms_selected` として渡されます。年齢・性別・特殊属性ごとの一人称、二人称、喜び、悲しみ、照れ、困惑、痛み、制止、怒り語彙の基準に使われます。
 
 ### Turn Cache
 
@@ -581,7 +581,7 @@ Important fields:
 | `actor_guard_enabled` / `actor_guard_model` | Third-person actor guard settings when `--actor-guard` is used. |
 | `max_tokens_policy` | Max-token settings for persona, controller, actor, and actor-guard calls. Defaults use DeepSeek V4 max output, 384K. `0` or `None` means `max_tokens` was omitted for that call. |
 
-`prompt_hashes.age_gender_norms_sha256` is the hash of `prompt_dir/age_gender_norms/` JSON files when present, otherwise `prompt_dir/age_gender_norms.txt`. Persona Controller and Actor Guard receive only the relevant selected snippets as `age_gender_norms_selected`, not the full dataset. The snippets guide ordinary cries, pain reactions, refusals, and anger vocabulary.
+`prompt_hashes.age_gender_norms_sha256` is the hash of `prompt_dir/age_gender_norms/` JSON files when present, otherwise `prompt_dir/age_gender_norms.txt`. Persona Controller and Actor Guard receive only the relevant selected snippets as `age_gender_norms_selected`, not the full dataset. The snippets guide first/second person choices, joy, sadness, embarrassment, confusion, pain reactions, refusals, anger vocabulary, and special archetypes.
 
 ### Turn Cache
 

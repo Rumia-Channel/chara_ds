@@ -1,4 +1,4 @@
-"""Lookup helpers for age/gender norm snippets."""
+"""Lookup helpers for character reaction/style norm snippets."""
 
 from __future__ import annotations
 
@@ -45,7 +45,21 @@ def _profile_text(profile: Any) -> str:
     if not isinstance(profile, dict):
         return ""
     fields = []
-    for key in ("role", "age", "age_band", "gender", "occupation", "public_profile", "personality", "speech_style"):
+    for key in (
+        "role",
+        "age",
+        "age_band",
+        "gender",
+        "occupation",
+        "public_profile",
+        "personality",
+        "speech_style",
+        "archetype",
+        "character_type",
+        "style_notes",
+        "values",
+        "weaknesses",
+    ):
         value = profile.get(key)
         if isinstance(value, str):
             fields.append(value)
@@ -63,14 +77,17 @@ def select_norm_ids_from_text(index: Dict[str, Any], text: str, *, limit: int = 
             continue
         needles = [
             str(item.get("label_ja") or ""),
+            str(item.get("category") or ""),
+            str(item.get("archetype") or ""),
             str(item.get("gender") or ""),
             str(item.get("age_band") or ""),
             str(item.get("school_stage") or ""),
             norm_id.replace("_", " "),
         ]
-        aliases = item.get("aliases")
-        if isinstance(aliases, list):
-            needles.extend(str(a) for a in aliases)
+        for key in ("aliases", "tags"):
+            values = item.get(key)
+            if isinstance(values, list):
+                needles.extend(str(a) for a in values)
         if any(n and n.lower() in hay for n in needles):
             selected.append(norm_id)
         if len(selected) >= limit:
