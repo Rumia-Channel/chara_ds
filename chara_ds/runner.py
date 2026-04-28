@@ -261,6 +261,7 @@ def backfill_short_records_to_cache(
                 "reasoning_effort": args.reasoning_effort,
                 "persona_thinking_enabled": persona_thinking_enabled,
                 "turn_controller_thinking_enabled": turn_controller_thinking_enabled,
+                "state_memory_tool_enabled": not args.disable_state_memory_tool,
                 "actor_thinking_enabled": actor_thinking_enabled,
                 "actor_guard_enabled": actor_guard_enabled,
                 "actor_guard_model": args.actor_guard_model,
@@ -412,6 +413,8 @@ def run_one_conversation_task(
             reasoning_effort=args.reasoning_effort,
             persona_thinking_enabled=persona_thinking_enabled,
             turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+            state_memory_tool_enabled=not args.disable_state_memory_tool,
+            resume_accept_stale_cache=args.resume_accept_stale_cache,
             actor_thinking_enabled=actor_thinking_enabled,
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
@@ -527,6 +530,8 @@ def rewrite_one_conversation_task(
             reasoning_effort=args.reasoning_effort,
             persona_thinking_enabled=persona_thinking_enabled,
             turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+            state_memory_tool_enabled=not args.disable_state_memory_tool,
+            resume_accept_stale_cache=args.resume_accept_stale_cache,
             actor_thinking_enabled=actor_thinking_enabled,
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
@@ -630,6 +635,8 @@ def finish_one_conversation_task(
             reasoning_effort=args.reasoning_effort,
             persona_thinking_enabled=persona_thinking_enabled,
             turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+            state_memory_tool_enabled=not args.disable_state_memory_tool,
+            resume_accept_stale_cache=args.resume_accept_stale_cache,
             actor_thinking_enabled=actor_thinking_enabled,
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
@@ -874,6 +881,22 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable timestamped backup of an existing per-turn cache file before it is overwritten.",
     )
+    parser.add_argument(
+        "--disable-state-memory-tool",
+        action="store_true",
+        help=(
+            "Disable the new Turn Controller strict tool/state_memory path and use the legacy JSON controller path. "
+            "Useful when resuming old caches."
+        ),
+    )
+    parser.add_argument(
+        "--resume-accept-stale-cache",
+        action="store_true",
+        help=(
+            "With --resume, accept an existing turn cache even when its signature differs. "
+            "Use only for explicitly restoring old backup caches after prompt/schema changes."
+        ),
+    )
     parser.add_argument("--resume", action="store_true")
 
     parser.add_argument("--progress-server", action="store_true")
@@ -972,6 +995,12 @@ def main() -> None:
 
     if args.finish_min_turns < 0:
         raise ValueError("--finish-min-turns must be >= 0")
+
+    if args.resume_accept_stale_cache and not args.resume:
+        raise ValueError("--resume-accept-stale-cache requires --resume")
+
+    if args.resume_accept_stale_cache and not args.disable_state_memory_tool:
+        raise ValueError("--resume-accept-stale-cache requires --disable-state-memory-tool")
 
     persona_lines = load_persona_lines(args.persona_txt)
     prompts = load_prompts(args.prompt_dir)
@@ -1757,6 +1786,8 @@ def main() -> None:
         "model": args.model,
         "persona_thinking_enabled": persona_thinking_enabled,
         "turn_controller_thinking_enabled": turn_controller_thinking_enabled,
+        "state_memory_tool_enabled": not args.disable_state_memory_tool,
+        "resume_accept_stale_cache": args.resume_accept_stale_cache,
         "actor_thinking_enabled": actor_thinking_enabled,
         "reasoning_effort": args.reasoning_effort,
         "python_quality_filtering": False,

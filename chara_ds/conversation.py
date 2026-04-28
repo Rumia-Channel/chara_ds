@@ -74,6 +74,18 @@ def latest_scene_state(turns: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
+def latest_state_memory(turns: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return the latest structured state memory saved in turn records."""
+    for turn in reversed(turns):
+        controller = turn.get("controller") if isinstance(turn, dict) else None
+        content = controller.get("content") if isinstance(controller, dict) else None
+        tc = content.get("turn_control") if isinstance(content, dict) else None
+        memory = tc.get("state_memory") if isinstance(tc, dict) else None
+        if isinstance(memory, dict):
+            return memory
+    return None
+
+
 def estimate_ending_pacing_floor(user_txt: str, min_turns: int, max_turns: int) -> Optional[int]:
     """Return a conservative turn floor when the source text contains an explicit ending.
 
@@ -157,6 +169,8 @@ def generate_one_conversation(
     reasoning_effort: str,
     persona_thinking_enabled: bool,
     turn_controller_thinking_enabled: bool,
+    state_memory_tool_enabled: bool,
+    resume_accept_stale_cache: bool,
     actor_thinking_enabled: bool,
     actor_guard_enabled: bool,
     actor_guard_model: str,
@@ -238,6 +252,7 @@ def generate_one_conversation(
             "reasoning_effort": reasoning_effort,
             "persona_thinking_enabled": persona_thinking_enabled,
             "turn_controller_thinking_enabled": turn_controller_thinking_enabled,
+            "state_memory_tool_enabled": state_memory_tool_enabled,
             "actor_thinking_enabled": actor_thinking_enabled,
             "actor_guard_enabled": actor_guard_enabled,
             "actor_guard_model": actor_guard_model,
@@ -264,17 +279,22 @@ def generate_one_conversation(
         c = load_turn_cache(cache_dir, conversation_id)
         cache_file_exists = False
         cache_not_used_reason = "missing"
-        if c is not None and c.get("signature") == cache_signature:
+        if c is not None and (
+            c.get("signature") == cache_signature
+            or (resume_accept_stale_cache and not state_memory_tool_enabled)
+        ):
             cached = c
             if cache_diagnostics:
+                stale_cache = c.get("signature") != cache_signature
                 print(
                     json.dumps(
                         {
-                            "event": "turn_cache_used",
+                            "event": "turn_cache_used_stale" if stale_cache else "turn_cache_used",
                             "conversation_id": conversation_id,
                             "completed_turns": len(c.get("turns") or []),
                             "target_turns": target_turns,
                             "early_end": bool(c.get("early_end")),
+                            "stale_signature_accepted": stale_cache,
                         },
                         ensure_ascii=False,
                     ),
@@ -331,6 +351,7 @@ def generate_one_conversation(
         start_turn = len(turns) + 1
         early_end = False
         previous_scene_state = latest_scene_state(turns)
+        previous_state_memory = latest_state_memory(turns)
 
         progress_update(
             status="resuming_existing_record",
@@ -371,6 +392,7 @@ def generate_one_conversation(
         start_turn = len(turns) + 1
         early_end = bool(cached.get("early_end"))
         previous_scene_state = latest_scene_state(turns)
+        previous_state_memory = latest_state_memory(turns)
 
         progress_update(
             status="resumed_from_cache",
@@ -461,6 +483,7 @@ def generate_one_conversation(
         start_turn = 1
         early_end = False
         previous_scene_state = None
+        previous_state_memory = None
 
         if cache_dir:
             save_turn_cache(
@@ -508,6 +531,8 @@ def generate_one_conversation(
                     persona_seed=persona_seed,
                     public_timeline=public_timeline,
                     previous_scene_state=previous_scene_state,
+                    previous_state_memory=previous_state_memory,
+                    state_memory_tool_enabled=state_memory_tool_enabled,
                     turn_index=turn_index,
                     target_turns=target_turns,
                     reasoning_effort=reasoning_effort,
@@ -530,6 +555,9 @@ def generate_one_conversation(
             state = turn_control.get("scene_state")
             if isinstance(state, str) and state.strip():
                 previous_scene_state = state.strip()
+            memory = turn_control.get("state_memory")
+            if isinstance(memory, dict):
+                previous_state_memory = memory
             speaker = turn_control.get("next_speaker")
 
             if speaker not in ("A", "B"):
@@ -849,6 +877,7 @@ def generate_one_conversation(
                 "provider": "deepseek",
                 "model": model,
                 "role": "turn_controller",
+                "state_memory_tool_enabled": state_memory_tool_enabled,
                 "thinking": {
                     "enabled": turn_controller_thinking_enabled,
                     "reasoning_effort": reasoning_effort if turn_controller_thinking_enabled else None,

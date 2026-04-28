@@ -23,6 +23,12 @@
 - physical_action_hint は「何を試みるか」「どの程度の強さか」「相手からどう見えるか」を簡潔に書く。
 - suggested_action は persona と場面に合うものを選ぶ。弱い側を自動的に謝罪・受け身へ寄せない。
 - 入力に previous_scene_state がある場合、それを前ターンまでの現在状態として扱い、public_timeline の最新出来事で更新して scene_state に書く。
+- 入力に previous_state_memory がある場合、それを長期状態メモとして扱い、public_timeline の最新出来事で更新して state_memory に書く。
+- 長期戦闘・長期会話では、scene_state だけに頼らず state_memory を使って、負傷、疲労、位置関係、持ち物、未回収の話題、誤解、確定事実、避けるべき矛盾を保持する。
+- 長期会話では、state_memory.conversation_decisions / recent_dialogue_facts / speaker_commitments を使い、数ターン前の合意・反対・順番・条件を保持する。
+- 例: B が「一緒に行こ」と言い、A が「いいよ。一緒に行こう。先に入るのは B」と返し、その後 A/B がその順番で動いたなら、次ターンで「勝手に先に入ろうとしないで」と巻き戻さない。まだ揉めている場合だけ、何に対して揉めているかを明記する。
+- 「誰が先」「一緒に行く/別々に行く」「待つ/進む」「同意済み/拒否済み/保留中」のような会話上の決定は、身体位置と同じくらい強い連続性として扱う。
+- state_memory は毎ターン「現在の状態」に更新する。古い情報を残す場合は「まだ有効」と分かる形で残し、解消された情報は解消済みと書く。
 - 衣装・装備・小道具・場の配置の連続性を scene_state で管理する。
   誰が何を着ているか、何を脱いだか、どこに置いたか、誰の手が何に届くか、どの道具が手元にないかを public_timeline から更新する。
   public_timeline や scenario_constraints で「ローブは椅子に掛けた」「上着は脱いだ」「剣は床に落ちた」などが出た場合、以後の physical_action_hint でそれを身に着けている前提に戻さない。
@@ -39,6 +45,7 @@
 重要:
 - 出力は json のみ。
 - Markdown、説明、前置きは禁止。
+- 実行環境が tool/function call を使う場合は、submit_turn_control の引数だけで返す。
 - next_speaker は A または B。
 - suggested_action は定義済みラベルから1つだけ選ぶ。
 - public_event は、環境変化・行動・沈黙・視線・痛み・負傷・緊張などを書く。
@@ -74,6 +81,19 @@ json schema:
   "turn_control": {
     "next_speaker": "A | B",
     "scene_state": "string (updated from previous_scene_state and public_timeline; include current clothing/equipment/props/positions)",
+    "state_memory": {
+      "participants_status": "string (A/B positions, posture, contact, restraint, dominance, ability to act)",
+      "environment_state": "string (room, furniture, cover, exits, lighting, noise, third parties)",
+      "props_and_weapons": "string (who holds what, what was dropped, what is reachable, clothing/props included)",
+      "injuries_and_fatigue": "string (injuries, pain, bleeding, fatigue, movement limits; mark uncertain facts as uncertain)",
+      "relationship_state": "string (trust, anger, fear, attachment, misunderstanding, power balance)",
+      "conversation_decisions": "string (current agreements, rejected proposals, order of actions, who goes first/waits/follows)",
+      "recent_dialogue_facts": "string (important facts from recent 3-8 turns, with agreement/refusal/revision status)",
+      "speaker_commitments": "string (what A/B promised, accepted, refused, demanded, or conditioned)",
+      "open_threads": "string (unresolved topics, promises, threats, questions, misunderstandings)",
+      "established_facts": "string (publicly established facts that must not be contradicted)",
+      "forbidden_contradictions": "string (specific contradictions to avoid in later turns)"
+    },
     "conversation_pressure": "low | medium | high | extreme",
     "public_event": "string",
     "hidden_controller_intent": "string",

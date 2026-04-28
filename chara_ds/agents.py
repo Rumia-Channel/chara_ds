@@ -57,6 +57,174 @@ ACTOR_TOOL_PARAMETERS: Dict[str, Any] = {
 }
 
 
+TURN_CONTROLLER_TOOL_NAME = "submit_turn_control"
+TURN_CONTROLLER_TOOL_DESCRIPTION = (
+    "次ターンの制御情報と、長期会話・長期戦闘用の状態メモリを提出する。"
+    "発話本文は書かず、Actor に渡す方針だけを返す。"
+)
+SUGGESTED_ACTIONS = [
+    "greet",
+    "ask_softly",
+    "ask_directly",
+    "answer_briefly",
+    "explain",
+    "reassure",
+    "avoid_detail",
+    "shift_topic",
+    "joke",
+    "apologize",
+    "refuse_gently",
+    "accept",
+    "confirm",
+    "wait",
+    "close",
+    "protest",
+    "threaten",
+    "endure_pain",
+    "resist",
+    "attack",
+    "defend",
+    "retreat",
+    "stay_silent",
+]
+TURN_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "next_speaker": {
+            "type": "string",
+            "enum": ["A", "B"],
+            "description": "次に発話・行動する話者。",
+        },
+        "scene_state": {
+            "type": "string",
+            "description": "現在の場面状態。衣装、装備、小道具、位置関係、接触、負傷、疲労を含めて更新する。",
+        },
+        "state_memory": {
+            "type": "object",
+            "description": "長期会話・長期戦闘のために次ターン以降へ保持する構造化メモ。",
+            "properties": {
+                "participants_status": {
+                    "type": "string",
+                    "description": "A/B の姿勢、位置、拘束、接触、心理的優勢/劣勢、行動不能状態など。",
+                },
+                "environment_state": {
+                    "type": "string",
+                    "description": "場所、家具、遮蔽物、逃げ道、照明、騒音、第三者の有無など。",
+                },
+                "props_and_weapons": {
+                    "type": "string",
+                    "description": "誰が何を持つ/失う/手が届く位置にあるか。服や小道具も含む。",
+                },
+                "injuries_and_fatigue": {
+                    "type": "string",
+                    "description": "負傷、痛み、息切れ、疲労、出血、動作制限。未確定なら未確定と書く。",
+                },
+                "relationship_state": {
+                    "type": "string",
+                    "description": "感情の距離、信頼/不信、怒り、恐怖、執着、誤解、優位性など。",
+                },
+                "conversation_decisions": {
+                    "type": "string",
+                    "description": "会話で決まったこと、暫定合意、拒否された案、誰が何をする順番か。例: Bが先に入る、Aは後ろからついていく。",
+                },
+                "recent_dialogue_facts": {
+                    "type": "string",
+                    "description": "直近3〜8ターンの重要な発言内容と、それに対する同意/反対/修正。台詞全文ではなく要点。",
+                },
+                "speaker_commitments": {
+                    "type": "string",
+                    "description": "A/B が明示した約束、意志、拒否、条件。誰が言ったかを区別する。",
+                },
+                "open_threads": {
+                    "type": "string",
+                    "description": "まだ回収していない話題、伏線、誤解、約束、脅し、問い。",
+                },
+                "established_facts": {
+                    "type": "string",
+                    "description": "以後覆してはいけない公開済み事実。public_timeline で見えた事実だけ。",
+                },
+                "forbidden_contradictions": {
+                    "type": "string",
+                    "description": "次ターン以降で避けるべき矛盾。例: 落とした武器を手元に戻さない、脱いだ服を着ている前提にしない。",
+                },
+            },
+            "required": [
+                "participants_status",
+                "environment_state",
+                "props_and_weapons",
+                "injuries_and_fatigue",
+                "relationship_state",
+                "conversation_decisions",
+                "recent_dialogue_facts",
+                "speaker_commitments",
+                "open_threads",
+                "established_facts",
+                "forbidden_contradictions",
+            ],
+            "additionalProperties": False,
+        },
+        "conversation_pressure": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "extreme"],
+            "description": "現在の会話圧。",
+        },
+        "public_event": {
+            "type": "string",
+            "description": "この制御ターンで認識される環境変化・沈黙・緊張など。発話本文は書かない。",
+        },
+        "hidden_controller_intent": {
+            "type": "string",
+            "description": "Controller 側の展開意図。Actor の発話本文ではない。",
+        },
+        "directive_for_next_speaker": {
+            "type": "object",
+            "properties": {
+                "emotional_push": {"type": "string"},
+                "local_goal": {"type": "string"},
+                "constraint": {"type": "string"},
+                "suggested_action": {"type": "string", "enum": SUGGESTED_ACTIONS},
+                "physical_action_hint": {"type": "string"},
+                "avoid": {"type": "string"},
+            },
+            "required": [
+                "emotional_push",
+                "local_goal",
+                "constraint",
+                "suggested_action",
+                "physical_action_hint",
+                "avoid",
+            ],
+            "additionalProperties": False,
+        },
+        "expected_next_effect": {
+            "type": "string",
+            "description": "次ターン後に起こりうる効果。確定しすぎない。",
+        },
+        "should_end": {
+            "type": "boolean",
+            "description": "自然に区切れる場合のみ true。",
+        },
+        "end_reason": {
+            "type": "string",
+            "description": "should_end の理由。false なら空文字。",
+        },
+    },
+    "required": [
+        "next_speaker",
+        "scene_state",
+        "state_memory",
+        "conversation_pressure",
+        "public_event",
+        "hidden_controller_intent",
+        "directive_for_next_speaker",
+        "expected_next_effect",
+        "should_end",
+        "end_reason",
+    ],
+    "additionalProperties": False,
+}
+
+
 def validate_persona_output(obj: Dict[str, Any]) -> bool:
     return isinstance(obj, dict) and isinstance(obj.get("persona_seed"), dict)
 
@@ -168,6 +336,8 @@ def call_turn_controller(
     persona_seed: Dict[str, Any],
     public_timeline: List[Dict[str, Any]],
     previous_scene_state: Optional[str],
+    previous_state_memory: Optional[Dict[str, Any]],
+    state_memory_tool_enabled: bool,
     turn_index: int,
     target_turns: int,
     reasoning_effort: str,
@@ -184,9 +354,11 @@ def call_turn_controller(
         "target_turns": target_turns,
         "persona_seed": persona_seed,
         "instruction": (
-            "次ターンの制御だけを json で返す。"
+            f"次ターンの制御だけを、関数 {TURN_CONTROLLER_TOOL_NAME} を呼び出すことで提出する。"
+            "通常のメッセージ本文には何も書かない。必ず関数呼び出しで返す。"
             "次話者、会話圧、行動の方向性、感情の圧だけを制御する。"
             "発話本文は Actor が決める。"
+            "長期状態は state_memory に構造化して保持する。"
         ),
     }
 
@@ -194,23 +366,84 @@ def call_turn_controller(
     payload = {
         "turn_index": turn_index,
         "previous_scene_state": previous_scene_state,
+        "previous_state_memory": previous_state_memory,
         "public_timeline": public_timeline,
     }
 
-    parsed, reasoning, usage, raw = call_deepseek_json(
-        client,
-        model=model,
-        system_prompt=prompts.turn_controller,
-        user_payload=payload,
-        static_context=static_context,
-        max_tokens=max_tokens,
-        reasoning_effort=reasoning_effort,
-        thinking_enabled=thinking_enabled,
-        temperature=temperature,
-        top_p=top_p,
-    )
+    if not state_memory_tool_enabled:
+        legacy_payload = {
+            "turn_index": turn_index,
+            "previous_scene_state": previous_scene_state,
+            "public_timeline": public_timeline,
+        }
+        parsed, reasoning, usage, raw = call_deepseek_json(
+            client,
+            model=model,
+            system_prompt=prompts.turn_controller,
+            user_payload=legacy_payload,
+            static_context={
+                **static_context,
+                "instruction": (
+                    "次ターンの制御だけを json で返す。"
+                    "次話者、会話圧、行動の方向性、感情の圧だけを制御する。"
+                    "発話本文は Actor が決める。"
+                ),
+            },
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            thinking_enabled=thinking_enabled,
+            temperature=temperature,
+            top_p=top_p,
+        )
+        parsed = normalize_turn_control_output(parsed)
+        if not validate_turn_control_output(parsed):
+            snippet = (raw or "")[:400].replace("\n", "\\n")
+            raise ValueError(
+                "invalid turn controller output "
+                f"(keys={sorted(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__}, "
+                f"raw_head={snippet!r})"
+            )
+        return parsed, reasoning, usage, raw
 
-    parsed = normalize_turn_control_output(parsed)
+    try:
+        args, reasoning, usage, raw = call_deepseek_tool(
+            client,
+            model=model,
+            system_prompt=prompts.turn_controller,
+            user_payload=payload,
+            static_context=static_context,
+            tool_name=TURN_CONTROLLER_TOOL_NAME,
+            tool_description=TURN_CONTROLLER_TOOL_DESCRIPTION,
+            tool_parameters=TURN_CONTROLLER_TOOL_PARAMETERS,
+            tool_strict=True,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            thinking_enabled=thinking_enabled,
+            temperature=temperature,
+            top_p=top_p,
+        )
+    except ValueError as e:
+        if thinking_enabled and "empty tool_call arguments" in str(e):
+            args, reasoning, usage, raw = call_deepseek_tool(
+                client,
+                model=model,
+                system_prompt=prompts.turn_controller,
+                user_payload=payload,
+                static_context=static_context,
+                tool_name=TURN_CONTROLLER_TOOL_NAME,
+                tool_description=TURN_CONTROLLER_TOOL_DESCRIPTION,
+                tool_parameters=TURN_CONTROLLER_TOOL_PARAMETERS,
+                tool_strict=True,
+                max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
+                thinking_enabled=False,
+                temperature=temperature,
+                top_p=top_p,
+            )
+        else:
+            raise
+
+    parsed = normalize_turn_control_output({"turn_control": args})
 
     if not validate_turn_control_output(parsed):
         snippet = (raw or "")[:400].replace("\n", "\\n")
@@ -266,6 +499,7 @@ def call_actor(
         "turn_index": turn_index,
         "controller_directive_for_you": turn_control.get("directive_for_next_speaker", {}),
         "scene_state": turn_control.get("scene_state"),
+        "state_memory": turn_control.get("state_memory"),
         "conversation_pressure": turn_control.get("conversation_pressure"),
         "public_event": turn_control.get("public_event"),
         "public_timeline": public_timeline,
