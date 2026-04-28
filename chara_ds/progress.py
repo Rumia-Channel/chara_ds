@@ -75,6 +75,7 @@ PROGRESS_STATE: Dict[str, Any] = {
     "last_persona": None,
     "last_controller": None,
     "last_actor": None,
+    "last_actor_guard": None,
     "events": [],
     "errors": [],
     "control": {
@@ -216,6 +217,8 @@ def progress_update(
     last_persona: Optional[Dict[str, Any]] = None,
     last_controller: Optional[Dict[str, Any]] = None,
     last_actor: Optional[Dict[str, Any]] = None,
+    last_actor_guard: Optional[Dict[str, Any]] = None,
+    clear_last_actor_guard: bool = False,
     error: Optional[Dict[str, Any]] = None,
     event: Optional[Dict[str, Any]] = None,
     remove_active: bool = False,
@@ -267,6 +270,11 @@ def progress_update(
 
         if last_actor is not None:
             PROGRESS_STATE["last_actor"] = progress_safe(last_actor)
+
+        if last_actor_guard is not None:
+            PROGRESS_STATE["last_actor_guard"] = progress_safe(last_actor_guard)
+        elif clear_last_actor_guard:
+            PROGRESS_STATE["last_actor_guard"] = None
 
         if error is not None:
             PROGRESS_STATE["errors"].append(progress_safe(error))

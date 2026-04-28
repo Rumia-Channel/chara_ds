@@ -40,9 +40,11 @@ def load_prompts(prompt_dir: str) -> PromptBundle:
         "persona_controller": base / "persona_controller.txt",
         "turn_controller": base / "turn_controller.txt",
         "actor": base / "actor.txt",
+        "actor_guard": base / "actor_guard.txt",
     }
 
-    missing = [str(p) for p in files.values() if not p.exists()]
+    required_keys = ("persona_controller", "turn_controller", "actor")
+    missing = [str(files[k]) for k in required_keys if not files[k].exists()]
     if missing:
         raise FileNotFoundError(f"missing prompt files: {missing}")
 
@@ -50,6 +52,9 @@ def load_prompts(prompt_dir: str) -> PromptBundle:
         persona_controller=read_text(str(files["persona_controller"])).strip(),
         turn_controller=read_text(str(files["turn_controller"])).strip(),
         actor=read_text(str(files["actor"])).strip(),
+        actor_guard=read_text(str(files["actor_guard"])).strip()
+        if files["actor_guard"].exists()
+        else "",
     )
 
 

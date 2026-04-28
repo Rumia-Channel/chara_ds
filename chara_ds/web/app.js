@@ -488,6 +488,7 @@ function renderTimeline(state) {
 
 function renderDetail(state) {
   $("pane-actor").textContent = fmtJSON(state.last_actor);
+  $("pane-guard").textContent = fmtJSON(state.last_actor_guard);
   $("pane-controller").textContent = fmtJSON(state.last_controller);
   $("pane-persona").textContent = fmtJSON(state.last_persona);
 
@@ -961,6 +962,7 @@ function renderTimeline(state) {
 
 function renderDetail(state) {
   $("pane-actor").textContent = fmtJSON(state.last_actor);
+  $("pane-guard").textContent = fmtJSON(state.last_actor_guard);
   $("pane-controller").textContent = fmtJSON(state.last_controller);
   $("pane-persona").textContent = fmtJSON(state.last_persona);
 

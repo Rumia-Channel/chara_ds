@@ -193,6 +193,8 @@ def run_one_conversation_task(
     persona_thinking_enabled: bool,
     turn_controller_thinking_enabled: bool,
     actor_thinking_enabled: bool,
+    actor_guard_enabled: bool,
+    actor_guard_thinking_enabled: bool,
     cache_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     conversation_index = idx0 + 1
@@ -233,11 +235,15 @@ def run_one_conversation_task(
             persona_thinking_enabled=persona_thinking_enabled,
             turn_controller_thinking_enabled=turn_controller_thinking_enabled,
             actor_thinking_enabled=actor_thinking_enabled,
+            actor_guard_enabled=actor_guard_enabled,
+            actor_guard_model=args.actor_guard_model,
+            actor_guard_thinking_enabled=actor_guard_thinking_enabled,
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=args.persona_max_tokens,
             controller_max_tokens=args.controller_max_tokens,
             actor_max_tokens=args.actor_max_tokens,
+            actor_guard_max_tokens=args.actor_guard_max_tokens,
             keep_raw_content=args.keep_raw_content,
             errors_out=errors_out,
             retries=args.retries,
@@ -295,6 +301,8 @@ def rewrite_one_conversation_task(
     persona_thinking_enabled: bool,
     turn_controller_thinking_enabled: bool,
     actor_thinking_enabled: bool,
+    actor_guard_enabled: bool,
+    actor_guard_thinking_enabled: bool,
     cache_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     conversation_id = str(record.get("id") or record.get("conversation_id") or "")
@@ -340,11 +348,15 @@ def rewrite_one_conversation_task(
             persona_thinking_enabled=persona_thinking_enabled,
             turn_controller_thinking_enabled=turn_controller_thinking_enabled,
             actor_thinking_enabled=actor_thinking_enabled,
+            actor_guard_enabled=actor_guard_enabled,
+            actor_guard_model=args.actor_guard_model,
+            actor_guard_thinking_enabled=actor_guard_thinking_enabled,
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=args.persona_max_tokens,
             controller_max_tokens=args.controller_max_tokens,
             actor_max_tokens=args.actor_max_tokens,
+            actor_guard_max_tokens=args.actor_guard_max_tokens,
             keep_raw_content=args.keep_raw_content,
             errors_out=errors_out,
             retries=args.retries,
@@ -396,6 +408,8 @@ def finish_one_conversation_task(
     persona_thinking_enabled: bool,
     turn_controller_thinking_enabled: bool,
     actor_thinking_enabled: bool,
+    actor_guard_enabled: bool,
+    actor_guard_thinking_enabled: bool,
     cache_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     conversation_id = str(record.get("id") or record.get("conversation_id") or "")
@@ -436,11 +450,15 @@ def finish_one_conversation_task(
             persona_thinking_enabled=persona_thinking_enabled,
             turn_controller_thinking_enabled=turn_controller_thinking_enabled,
             actor_thinking_enabled=actor_thinking_enabled,
+            actor_guard_enabled=actor_guard_enabled,
+            actor_guard_model=args.actor_guard_model,
+            actor_guard_thinking_enabled=actor_guard_thinking_enabled,
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=args.persona_max_tokens,
             controller_max_tokens=args.controller_max_tokens,
             actor_max_tokens=args.actor_max_tokens,
+            actor_guard_max_tokens=args.actor_guard_max_tokens,
             keep_raw_content=args.keep_raw_content,
             errors_out=errors_out,
             retries=args.retries,
@@ -598,6 +616,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--disable-persona-thinking", action="store_true")
     parser.add_argument("--enable-turn-controller-thinking", action="store_true")
     parser.add_argument("--disable-actor-thinking", action="store_true")
+    parser.add_argument(
+        "--actor-guard",
+        action="store_true",
+        help=(
+            "After each actor turn, use a third-person DeepSeek flash judge to "
+            "explain age/body/tone inconsistencies back to the actor and rewrite the turn."
+        ),
+    )
+    parser.add_argument("--actor-guard-model", default=FLASH_MODEL)
+    parser.add_argument(
+        "--actor-guard-thinking",
+        choices=["default", "on", "off"],
+        default="off",
+        help="Thinking mode for --actor-guard. default/off keeps flash judging cheap.",
+    )
 
     parser.add_argument("--controller-temperature", type=float, default=0.9)
     parser.add_argument("--controller-top-p", type=float, default=0.95)
@@ -619,6 +652,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="0 means omit max_tokens for actor.",
+    )
+    parser.add_argument(
+        "--actor-guard-max-tokens",
+        type=int,
+        default=512,
+        help="0 means omit max_tokens for actor guard.",
     )
 
     parser.add_argument("--seed", type=int, default=20260426)
@@ -744,6 +783,10 @@ def main() -> None:
 
     persona_lines = load_persona_lines(args.persona_txt)
     prompts = load_prompts(args.prompt_dir)
+    if args.actor_guard and not prompts.actor_guard.strip():
+        raise FileNotFoundError(
+            f"--actor-guard requires {os.path.join(args.prompt_dir, 'actor_guard.txt')}"
+        )
 
     initial_pool = len(persona_lines)
     auto_gen_active = bool(args.auto_generate_situations)
@@ -821,6 +864,11 @@ def main() -> None:
         turn_controller_thinking_enabled = True
     if args.disable_actor_thinking:
         actor_thinking_enabled = False
+
+    if args.actor_guard_thinking == "on":
+        actor_guard_thinking_enabled = True
+    else:
+        actor_guard_thinking_enabled = False
 
     rewrite_ids = expand_id_args(args.rewrite_id)
     if args.rewrite_ids_file:
@@ -976,6 +1024,8 @@ def main() -> None:
                         persona_thinking_enabled=persona_thinking_enabled,
                         turn_controller_thinking_enabled=turn_controller_thinking_enabled,
                         actor_thinking_enabled=actor_thinking_enabled,
+                        actor_guard_enabled=args.actor_guard,
+                        actor_guard_thinking_enabled=actor_guard_thinking_enabled,
                         cache_dir=cache_dir,
                     )
                     if result["ok"]:
@@ -1022,6 +1072,8 @@ def main() -> None:
                             persona_thinking_enabled=persona_thinking_enabled,
                             turn_controller_thinking_enabled=turn_controller_thinking_enabled,
                             actor_thinking_enabled=actor_thinking_enabled,
+                            actor_guard_enabled=args.actor_guard,
+                            actor_guard_thinking_enabled=actor_guard_thinking_enabled,
                             cache_dir=cache_dir,
                         )
                         for pos, rec in targets
@@ -1261,6 +1313,8 @@ def main() -> None:
                         persona_thinking_enabled=persona_thinking_enabled,
                         turn_controller_thinking_enabled=turn_controller_thinking_enabled,
                         actor_thinking_enabled=actor_thinking_enabled,
+                        actor_guard_enabled=args.actor_guard,
+                        actor_guard_thinking_enabled=actor_guard_thinking_enabled,
                         cache_dir=cache_dir,
                     )
                     if result["ok"]:
@@ -1306,6 +1360,8 @@ def main() -> None:
                             persona_thinking_enabled=persona_thinking_enabled,
                             turn_controller_thinking_enabled=turn_controller_thinking_enabled,
                             actor_thinking_enabled=actor_thinking_enabled,
+                            actor_guard_enabled=args.actor_guard,
+                            actor_guard_thinking_enabled=actor_guard_thinking_enabled,
                             cache_dir=cache_dir,
                         )
                         for pos, rec in targets
@@ -1515,6 +1571,8 @@ def main() -> None:
                     persona_thinking_enabled=persona_thinking_enabled,
                     turn_controller_thinking_enabled=turn_controller_thinking_enabled,
                     actor_thinking_enabled=actor_thinking_enabled,
+                    actor_guard_enabled=args.actor_guard,
+                    actor_guard_thinking_enabled=actor_guard_thinking_enabled,
                     cache_dir=cache_dir,
                 )
 
@@ -1570,6 +1628,8 @@ def main() -> None:
                         persona_thinking_enabled=persona_thinking_enabled,
                         turn_controller_thinking_enabled=turn_controller_thinking_enabled,
                         actor_thinking_enabled=actor_thinking_enabled,
+                        actor_guard_enabled=args.actor_guard,
+                        actor_guard_thinking_enabled=actor_guard_thinking_enabled,
                         cache_dir=cache_dir,
                     )
                     for idx0 in work_indices

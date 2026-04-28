@@ -102,6 +102,16 @@ def validate_actor_output(obj: Dict[str, Any], speaker: str) -> bool:
     return isinstance(utt, str) and bool(utt.strip())
 
 
+def validate_actor_guard_output(obj: Dict[str, Any]) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    if not isinstance(obj.get("pass"), bool):
+        return False
+    if not isinstance(obj.get("severity"), str):
+        return False
+    return isinstance(obj.get("reason_ja"), str)
+
+
 def call_persona_controller(
     client: OpenAI,
     *,
@@ -218,6 +228,7 @@ def call_actor(
     reasoning_effort: str,
     max_tokens: Optional[int],
     thinking_enabled: bool,
+    actor_guard_feedback: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     characters = persona_seed.get("characters", {})
     own_profile = characters.get(speaker, {})
@@ -251,6 +262,9 @@ def call_actor(
         "public_event": turn_control.get("public_event"),
         "public_timeline": public_timeline,
     }
+
+    if actor_guard_feedback:
+        payload["actor_guard_feedback"] = actor_guard_feedback
 
     actor_prompt = prompts.actor.replace("__SPEAKER__", speaker)
 
@@ -305,6 +319,86 @@ def call_actor(
         raise ValueError(
             f"invalid actor output for speaker {speaker} "
             f"(arg_keys={sorted(args.keys())}, raw_len={len(raw)}, "
+            f"raw_head={snippet!r})"
+        )
+
+    return parsed, reasoning, usage, raw
+
+
+def _compact_character_profile(profile: Any) -> Dict[str, Any]:
+    if not isinstance(profile, dict):
+        return {}
+    keys = (
+        "role",
+        "age",
+        "age_band",
+        "gender",
+        "occupation",
+        "public_profile",
+        "personality",
+        "physicality",
+        "abilities",
+        "speech_style",
+    )
+    return {key: profile[key] for key in keys if key in profile}
+
+
+def call_actor_guard(
+    client: OpenAI,
+    *,
+    prompts: PromptBundle,
+    model: str,
+    speaker: str,
+    persona_seed: Dict[str, Any],
+    turn_control: Dict[str, Any],
+    public_timeline: List[Dict[str, Any]],
+    actor_content: Dict[str, Any],
+    turn_index: int,
+    reasoning_effort: str,
+    max_tokens: Optional[int],
+    thinking_enabled: bool,
+) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
+    static_context = {
+        "task": "judge_actor_turn_consistency",
+        "instruction": (
+            "第三者の編集者として、直前の actor output が人物設定・年齢・性別・"
+            "身体能力・場面状態・口調に合うかだけを判定する。"
+        ),
+    }
+    characters = persona_seed.get("characters", {})
+    payload = {
+        "speaker": speaker,
+        "turn_index": turn_index,
+        "character_minimum_profile": {
+            "A": _compact_character_profile(characters.get("A") if isinstance(characters, dict) else {}),
+            "B": _compact_character_profile(characters.get("B") if isinstance(characters, dict) else {}),
+        },
+        "relationship": persona_seed.get("relationship", {}),
+        "scenario_constraints": persona_seed.get("scenario_constraints", {}),
+        "controller_directive_for_speaker": turn_control.get("directive_for_next_speaker", {}),
+        "scene_state": turn_control.get("scene_state"),
+        "public_timeline_before_turn": public_timeline,
+        "actor_output": actor_content,
+    }
+
+    parsed, reasoning, usage, raw = call_deepseek_json(
+        client,
+        model=model,
+        system_prompt=prompts.actor_guard,
+        user_payload=payload,
+        static_context=static_context,
+        max_tokens=max_tokens,
+        reasoning_effort=reasoning_effort,
+        thinking_enabled=thinking_enabled,
+        temperature=0.0 if thinking_enabled is False else None,
+        top_p=1.0 if thinking_enabled is False else None,
+    )
+
+    if not validate_actor_guard_output(parsed):
+        snippet = (raw or "")[:200].replace("\n", "\\n")
+        raise ValueError(
+            "invalid actor guard output "
+            f"(keys={sorted(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__}, "
             f"raw_head={snippet!r})"
         )
 

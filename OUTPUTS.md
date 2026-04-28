@@ -35,7 +35,7 @@
 |---|---:|---|
 | `id` | string | 会話ID。例: `persona_deepseek_triple_ja_00000001`。 |
 | `dataset` | string | データセット名。現在値: `persona_controlled_deepseek_triple_agent_ja`。 |
-| `schema_version` | string | スキーマバージョン。現在値: `13.1`。 |
+| `schema_version` | string | スキーマバージョン。現在値: `13.2`。 |
 | `created_at` | string | UTC の ISO タイムスタンプ。 |
 | `synthetic` | bool | 合成データを示す値。常に `true`。 |
 | `language` | string | 言語コード。現在値: `ja`。 |
@@ -48,7 +48,7 @@
 | `turns` | array | 各ターンのコントローラー出力、アクター出力、公開イベント。 |
 | `public_timeline` | array | 公開される発話と可視行動の時系列。 |
 | `public_transcript` | array | 発話テキストだけの簡易会話ログ。 |
-| `usage` | object | ペルソナ、ターンコントローラー、アクターのトークン使用量。 |
+| `usage` | object | ペルソナ、ターンコントローラー、アクター、任意のアクター監視役のトークン使用量。 |
 | `hashes` | object | source、persona、timeline、conversation の SHA-256 ハッシュ。 |
 
 ### Source
@@ -115,6 +115,7 @@
 ### Turns
 
 `turns` は、各会話ターンの完全な生成記録です。
+`actor_guard` は `--actor-guard` を指定した場合のみ含まれます。Guard が不合格を返した場合、その `reason_ja` と `suggested_fix_ja` は次の Actor 呼び出しに `actor_guard_feedback` として渡され、同じターンの書き直しに使われます。
 
 各要素はおおむね以下の形です。
 
@@ -159,6 +160,18 @@
     "reasoning_content": "...",
     "usage": {},
     "thinking_enabled": true
+  },
+  "actor_guard": {
+    "content": {
+      "pass": true,
+      "severity": "ok",
+      "reason_ja": "問題なし",
+      "suggested_fix_ja": ""
+    },
+    "reasoning_content": null,
+    "usage": {},
+    "thinking_enabled": false,
+    "model": "deepseek-v4-flash"
   },
   "public_event": {
     "turn": 1,
@@ -229,6 +242,7 @@
 | `seed` | 生成シード。 |
 | `variation` | 元お題行に対するバリエーション番号。 |
 | `controller_temperature` / `controller_top_p` | thinking 無効時のターンコントローラーのサンプリング設定。 |
+| `actor_guard_enabled` / `actor_guard_model` | `--actor-guard` 使用時の第三者監視役設定。 |
 | `max_tokens_policy` | ペルソナ、コントローラー、アクター呼び出しの最大トークン設定。 |
 
 ### 推奨される使い方
@@ -323,7 +337,7 @@ Top-level fields:
 |---|---:|---|
 | `id` | string | Stable conversation ID, e.g. `persona_deepseek_triple_ja_00000001`. |
 | `dataset` | string | Dataset name. Current value: `persona_controlled_deepseek_triple_agent_ja`. |
-| `schema_version` | string | Schema version. Current value: `13.1`. |
+| `schema_version` | string | Schema version. Current value: `13.2`. |
 | `created_at` | string | UTC ISO timestamp. |
 | `synthetic` | bool | Always `true`; generated data. |
 | `language` | string | Language code. Current value: `ja`. |
@@ -336,7 +350,7 @@ Top-level fields:
 | `turns` | array | Full per-turn controller and actor records. |
 | `public_timeline` | array | Publicly visible dialogue/action sequence. |
 | `public_transcript` | array | Simplified speaker/text transcript. |
-| `usage` | object | Token usage for persona controller, turn controller, and actors. |
+| `usage` | object | Token usage for persona controller, turn controller, actors, and optional actor guard. |
 | `hashes` | object | SHA-256 hashes for source, persona, timeline, and conversation. |
 
 ### Source
@@ -403,6 +417,7 @@ Each character usually contains:
 ### Turns
 
 `turns` contains the full generation trace for every dialogue turn.
+`actor_guard` is present only when `--actor-guard` is enabled. If the guard fails an output, its `reason_ja` and `suggested_fix_ja` are passed to the next Actor call as `actor_guard_feedback` for rewriting the same turn.
 
 Each element has approximately this shape:
 
@@ -447,6 +462,18 @@ Each element has approximately this shape:
     "reasoning_content": "...",
     "usage": {},
     "thinking_enabled": true
+  },
+  "actor_guard": {
+    "content": {
+      "pass": true,
+      "severity": "ok",
+      "reason_ja": "問題なし",
+      "suggested_fix_ja": ""
+    },
+    "reasoning_content": null,
+    "usage": {},
+    "thinking_enabled": false,
+    "model": "deepseek-v4-flash"
   },
   "public_event": {
     "turn": 1,
@@ -517,6 +544,7 @@ Important fields:
 | `seed` | Generation seed. |
 | `variation` | Variation index for the source line. |
 | `controller_temperature` / `controller_top_p` | Turn controller sampling settings when thinking is disabled. |
+| `actor_guard_enabled` / `actor_guard_model` | Third-person actor guard settings when `--actor-guard` is used. |
 | `max_tokens_policy` | Max-token settings for persona, controller, and actor calls. |
 
 ### Recommended Views

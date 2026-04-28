@@ -13,7 +13,7 @@ DEFAULT_MODEL = PRO_MODEL
 DEFAULT_BASE_URL = "https://api.deepseek.com/beta"
 
 DATASET_NAME = "persona_controlled_deepseek_triple_agent_ja"
-SCHEMA_VERSION = "13.1"
+SCHEMA_VERSION = "13.2"
 
 
 @dataclass
@@ -28,3 +28,4 @@ class PromptBundle:
     persona_controller: str
     turn_controller: str
     actor: str
+    actor_guard: str

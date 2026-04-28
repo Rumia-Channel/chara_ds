@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
-from .agents import call_actor, call_persona_controller, call_turn_controller
+from .agents import call_actor, call_actor_guard, call_persona_controller, call_turn_controller
 from .api_client import call_with_retries
 from .config import DATASET_NAME, PersonaLine, PromptBundle, SCHEMA_VERSION
 from .io_utils import now_iso, sha256_json, sha256_text
@@ -109,11 +109,15 @@ def generate_one_conversation(
     persona_thinking_enabled: bool,
     turn_controller_thinking_enabled: bool,
     actor_thinking_enabled: bool,
+    actor_guard_enabled: bool,
+    actor_guard_model: str,
+    actor_guard_thinking_enabled: bool,
     controller_temperature: float,
     controller_top_p: float,
     persona_max_tokens: Optional[int],
     controller_max_tokens: Optional[int],
     actor_max_tokens: Optional[int],
+    actor_guard_max_tokens: Optional[int],
     keep_raw_content: bool,
     errors_out: str,
     retries: int,
@@ -164,17 +168,22 @@ def generate_one_conversation(
             "persona_thinking_enabled": persona_thinking_enabled,
             "turn_controller_thinking_enabled": turn_controller_thinking_enabled,
             "actor_thinking_enabled": actor_thinking_enabled,
+            "actor_guard_enabled": actor_guard_enabled,
+            "actor_guard_model": actor_guard_model,
+            "actor_guard_thinking_enabled": actor_guard_thinking_enabled,
             "controller_temperature": controller_temperature,
             "controller_top_p": controller_top_p,
             "persona_max_tokens": persona_max_tokens,
             "controller_max_tokens": controller_max_tokens,
             "actor_max_tokens": actor_max_tokens,
+            "actor_guard_max_tokens": actor_guard_max_tokens,
             "persona_line_sha256": persona_line.sha256,
             "persona_line_number": persona_line.line_number,
             "prompts": {
                 "persona_controller_sha256": sha256_text(prompts.persona_controller),
                 "turn_controller_sha256": sha256_text(prompts.turn_controller),
                 "actor_sha256": sha256_text(prompts.actor),
+                "actor_guard_sha256": sha256_text(prompts.actor_guard),
             },
         }
     )
@@ -202,6 +211,7 @@ def generate_one_conversation(
             "persona_controller": persona_usage,
             "turn_controller": [],
             "actors": [],
+            "actor_guard": [],
         }
         start_turn = len(turns) + 1
         early_end = False
@@ -239,6 +249,7 @@ def generate_one_conversation(
             "persona_controller": persona_usage,
             "turn_controller": [],
             "actors": [],
+            "actor_guard": [],
         }
         start_turn = len(turns) + 1
         early_end = bool(cached.get("early_end"))
@@ -323,6 +334,7 @@ def generate_one_conversation(
             "persona_controller": persona_usage,
             "turn_controller": [],
             "actors": [],
+            "actor_guard": [],
         }
         start_turn = 1
         early_end = False
@@ -415,20 +427,162 @@ def generate_one_conversation(
                 last_controller=controller_content,
             )
 
-            actor_content, actor_reasoning, actor_usage, actor_raw = call_with_retries(
-                lambda: call_actor(
-                    client,
-                    prompts=prompts,
-                    model=model,
-                    speaker=speaker,
-                    persona_seed=persona_seed,
-                    turn_control=turn_control,
-                    public_timeline=public_timeline,
-                    turn_index=turn_index,
-                    reasoning_effort=reasoning_effort,
-                    max_tokens=actor_max_tokens,
-                    thinking_enabled=actor_thinking_enabled,
-                ),
+            def generate_actor_and_guard():
+                if not actor_guard_enabled:
+                    actor_result = call_actor(
+                        client,
+                        prompts=prompts,
+                        model=model,
+                        speaker=speaker,
+                        persona_seed=persona_seed,
+                        turn_control=turn_control,
+                        public_timeline=public_timeline,
+                        turn_index=turn_index,
+                        reasoning_effort=reasoning_effort,
+                        max_tokens=actor_max_tokens,
+                        thinking_enabled=actor_thinking_enabled,
+                    )
+                    return (*actor_result, None, None, {}, "")
+
+                feedback: Optional[Dict[str, Any]] = None
+                guard_attempts: List[Dict[str, Any]] = []
+                last_guard = None
+
+                for guard_round in range(1, 3):
+                    actor_result = call_actor(
+                        client,
+                        prompts=prompts,
+                        model=model,
+                        speaker=speaker,
+                        persona_seed=persona_seed,
+                        turn_control=turn_control,
+                        public_timeline=public_timeline,
+                        turn_index=turn_index,
+                        reasoning_effort=reasoning_effort,
+                        max_tokens=actor_max_tokens,
+                        thinking_enabled=actor_thinking_enabled,
+                        actor_guard_feedback=feedback,
+                    )
+
+                    actor_content_local = actor_result[0]
+                    progress_update(
+                        status="actor_guard_running",
+                        conversation_id=conversation_id,
+                        current={
+                            "stage": "actor_guard",
+                            "conversation_id": conversation_id,
+                            "turn_index": turn_index,
+                            "speaker": speaker,
+                            "guard_round": guard_round,
+                        },
+                        latest_public_timeline=public_timeline,
+                        last_actor=actor_content_local,
+                        event={
+                            "type": "actor_guard_running",
+                            "conversation_id": conversation_id,
+                            "turn_index": turn_index,
+                            "speaker": speaker,
+                            "guard_round": guard_round,
+                        },
+                    )
+                    guard_content, guard_reasoning, guard_usage, guard_raw = call_actor_guard(
+                        client,
+                        prompts=prompts,
+                        model=actor_guard_model,
+                        speaker=speaker,
+                        persona_seed=persona_seed,
+                        turn_control=turn_control,
+                        public_timeline=public_timeline,
+                        actor_content=actor_content_local,
+                        turn_index=turn_index,
+                        reasoning_effort=reasoning_effort,
+                        max_tokens=actor_guard_max_tokens,
+                        thinking_enabled=actor_guard_thinking_enabled,
+                    )
+                    last_guard = (guard_content, guard_reasoning, guard_usage, guard_raw)
+                    guard_attempts.append(
+                        {
+                            "round": guard_round,
+                            "content": guard_content,
+                            "usage": guard_usage,
+                        }
+                    )
+                    if guard_content.get("pass") is True:
+                        guard_content["attempts"] = guard_attempts
+                        progress_update(
+                            status="actor_guard_done",
+                            conversation_id=conversation_id,
+                            current={
+                                "stage": "actor_guard_done",
+                                "conversation_id": conversation_id,
+                                "turn_index": turn_index,
+                                "speaker": speaker,
+                                "guard_round": guard_round,
+                            },
+                            latest_public_timeline=public_timeline,
+                            last_actor_guard=guard_content,
+                            event={
+                                "type": "actor_guard_done",
+                                "conversation_id": conversation_id,
+                                "turn_index": turn_index,
+                                "speaker": speaker,
+                                "guard_round": guard_round,
+                                "pass": True,
+                                "severity": guard_content.get("severity"),
+                                "reason": guard_content.get("reason_ja"),
+                            },
+                        )
+                        return (*actor_result, guard_content, guard_reasoning, guard_usage, guard_raw)
+
+                    feedback = {
+                        "severity": guard_content.get("severity") or "unknown",
+                        "reason_ja": guard_content.get("reason_ja") or "",
+                        "suggested_fix_ja": guard_content.get("suggested_fix_ja") or "",
+                            "instruction": (
+                                "第三者監視役の指摘を反映し、同じターンを人物設定・年齢・"
+                                "身体能力・口調に合う形で書き直す。"
+                            ),
+                        }
+                    progress_update(
+                        status="actor_guard_retrying",
+                        conversation_id=conversation_id,
+                        current={
+                            "stage": "actor_guard_retrying",
+                            "conversation_id": conversation_id,
+                            "turn_index": turn_index,
+                            "speaker": speaker,
+                            "guard_round": guard_round,
+                        },
+                        latest_public_timeline=public_timeline,
+                        last_actor_guard=guard_content,
+                        event={
+                            "type": "actor_guard_failed",
+                            "conversation_id": conversation_id,
+                            "turn_index": turn_index,
+                            "speaker": speaker,
+                            "guard_round": guard_round,
+                            "pass": False,
+                            "severity": guard_content.get("severity"),
+                            "reason": guard_content.get("reason_ja"),
+                            "suggested_fix": guard_content.get("suggested_fix_ja"),
+                        },
+                    )
+
+                reason = (last_guard[0].get("reason_ja") if last_guard else None) or "actor guard rejected output"
+                severity = (last_guard[0].get("severity") if last_guard else None) or "unknown"
+                raise ValueError(f"actor guard rejected corrected output ({severity}): {reason}")
+
+            (
+                actor_content,
+                actor_reasoning,
+                actor_usage,
+                actor_raw,
+                guard_content,
+                guard_reasoning,
+                guard_usage,
+                guard_raw,
+            ) = call_with_retries(
+                generate_actor_and_guard,
                 retries=retries,
                 errors_out=errors_out,
                 error_context={
@@ -460,14 +614,26 @@ def generate_one_conversation(
                 },
                 "public_event": public_event,
             }
+            if actor_guard_enabled:
+                turn_record["actor_guard"] = {
+                    "content": guard_content,
+                    "reasoning_content": guard_reasoning,
+                    "usage": guard_usage,
+                    "thinking_enabled": actor_guard_thinking_enabled,
+                    "model": actor_guard_model,
+                }
 
             if keep_raw_content:
                 turn_record["controller"]["raw_content"] = controller_raw
                 turn_record["actor"]["raw_content"] = actor_raw
+                if actor_guard_enabled:
+                    turn_record["actor_guard"]["raw_content"] = guard_raw
 
             turns.append(turn_record)
             usage_summary["turn_controller"].append(controller_usage)
             usage_summary["actors"].append(actor_usage)
+            if actor_guard_enabled:
+                usage_summary.setdefault("actor_guard", []).append(guard_usage)
 
             should_break = (
                 turn_index >= min_turns and turn_control.get("should_end") is True
@@ -509,6 +675,7 @@ def generate_one_conversation(
                 },
                 latest_public_timeline=public_timeline,
                 last_actor=actor_content,
+                clear_last_actor_guard=not actor_guard_enabled,
                 event={
                     "type": "actor_done",
                     "conversation_id": conversation_id,
@@ -586,11 +753,14 @@ def generate_one_conversation(
             "variation": variation,
             "controller_temperature": controller_temperature if not turn_controller_thinking_enabled else None,
             "controller_top_p": controller_top_p if not turn_controller_thinking_enabled else None,
-            "python_quality_filtering": False,
+            "python_quality_filtering": True,
+            "actor_guard_enabled": actor_guard_enabled,
+            "actor_guard_model": actor_guard_model if actor_guard_enabled else None,
             "max_tokens_policy": {
                 "persona_max_tokens": persona_max_tokens,
                 "controller_max_tokens": controller_max_tokens,
                 "actor_max_tokens": actor_max_tokens,
+                "actor_guard_max_tokens": actor_guard_max_tokens,
                 "zero_or_none_means_omitted": True,
             },
         },
@@ -598,6 +768,7 @@ def generate_one_conversation(
             "persona_controller_sha256": sha256_text(prompts.persona_controller),
             "turn_controller_sha256": sha256_text(prompts.turn_controller),
             "actor_sha256": sha256_text(prompts.actor),
+            "actor_guard_sha256": sha256_text(prompts.actor_guard),
         },
         "persona_generation": {
             "controller_content": persona_content,
@@ -625,6 +796,17 @@ def generate_one_conversation(
 
     if keep_raw_content:
         record["persona_generation"]["raw_content"] = persona_raw
+
+    if actor_guard_enabled:
+        record["agents"]["actor_guard"] = {
+            "provider": "deepseek",
+            "model": actor_guard_model,
+            "role": "actor_consistency_guard",
+            "thinking": {
+                "enabled": actor_guard_thinking_enabled,
+                "reasoning_effort": reasoning_effort if actor_guard_thinking_enabled else None,
+            },
+        }
 
     progress_update(
         status="conversation_done",
