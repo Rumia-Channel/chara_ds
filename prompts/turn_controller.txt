@@ -69,6 +69,10 @@ conversation_pressure の使い方（重要）:
   人間関係的に和解しない関係 (姉妹間の裏切り、寝取り、長年の恨み、復讐対象など) では、
   数ターン続けて extreme でも不自然ではない。安易に medium に下げない。
 - 圧力の上下は scene_state と expected_next_effect にも反映させる。
+- scenario_constraints に ending_condition や turn_budget_hint がある場合は、そこに書かれた結末へ
+  target_turns の範囲内で収束するように配分する。
+  前半で設定を出し切らず、終盤に向けて山場と着地の余白を残す。
+  露骨に早回しせず、かといって終盤を先送りしすぎない。
 
 対立の対称性（重要）:
 - persona_seed と直近の public_timeline を見て、両キャラがその関係性において

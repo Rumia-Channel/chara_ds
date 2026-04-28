@@ -30,6 +30,10 @@ user_txt から、日本語の創作会話用の架空キャラクター A と B
   例: 妹が姉の恋人を寝取ったなら distance=hostile / hidden_tension=
   「妹は悪びれず、むしろ姉に勝った優越感がある。姉は表面化していない殺意に近い怒りを抱える」など、
   実際にその関係で起きうる醜い感情を明示する。
+- 入力に結末が明示されている場合は、その結末に必ず到達できるように、
+  scenario_constraints に ending_condition と turn_budget_hint を入れる。
+  turn_budget_hint は「この会話をどのくらいのターン配分で進めるか」の補助情報であり、
+  途中でぶつ切りにならないよう、最後の山場と着地に十分な余白を残すことを優先する。
 
 制限:
 - 現実の犯罪や加害を実行するための手順、武器製造、爆発物製造、逃走手順、現実の標的選定などは扱わない。
@@ -166,7 +170,14 @@ json schema:
       "preferred_settings": ["string"],
       "continuity_notes": "string",
       "conversation_style_notes": "string",
-      "ending_condition": "string"
+      "ending_condition": "string",
+      "turn_budget_hint": {
+        "has_explicit_ending": true,
+        "minimum_required_turns": 0,
+        "recommended_target_turns": 0,
+        "milestones": ["string"],
+        "pace_notes": "string"
+      }
     }
   }
 }

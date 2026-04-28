@@ -382,6 +382,84 @@ html, body {
 /* events / errors lists */
 #pane-events, #pane-errors { font-family: var(--sans); }
 
+.agent-pane {
+  font-family: var(--sans);
+  white-space: normal;
+}
+
+.agent-conversation {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.agent-conversation-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+
+.agent-cid {
+  min-width: 0;
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--fg-mute);
+}
+
+.agent-entry {
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.agent-entry:first-of-type {
+  border-top: none;
+}
+
+.agent-entry.latest {
+  border-left: 3px solid var(--accent-2);
+}
+
+.agent-entry summary {
+  cursor: pointer;
+  padding: 7px 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--fg-dim);
+  user-select: none;
+}
+
+.agent-entry.latest summary {
+  color: var(--fg);
+}
+
+.agent-entry pre {
+  margin: 0;
+  padding: 8px 10px 10px 10px;
+  border-top: 1px solid var(--border);
+  background: rgba(0,0,0,0.14);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .event-item, .error-item {
   background: var(--bg-card);
   border: 1px solid var(--border);

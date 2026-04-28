@@ -81,9 +81,11 @@
 | `global_style` | ジャンル、地域、トーン。 |
 | `characters.A` / `characters.B` | 各話者のキャラクタープロフィール。 |
 | `relationship` | 関係性、過去、距離感、隠れた緊張。 |
-| `scenario_constraints` | 場所、許可される話題や行動、避ける話題、衣装・装備・小道具・位置関係の連続性メモ、文体メモ、終了条件。 |
+| `scenario_constraints` | 場所、許可される話題や行動、避ける話題、衣装・装備・小道具・位置関係の連続性メモ、文体メモ、終了条件、必要に応じたターン配分ヒント。 |
 
 `scenario_constraints` には、必要に応じて `continuity_notes` が含まれます。これは、初期状態の衣装、装備、小道具、家具、距離、手元にある/ない物などを記録するためのメモです。
+
+入力に結末が明示されている場合は、`ending_condition` と `turn_budget_hint` が含まれることがあります。`turn_budget_hint` は、`target_turns` の範囲内で途中ぶつ切りを避け、終盤の山場と着地に十分な余白を残すための補助情報です。
 
 例:
 
@@ -92,7 +94,15 @@
   "setting": "魔術学院の空き教室",
   "allowed_actions": ["腕をつかむ", "椅子を引く", "床に落ちた杖へ視線を向ける"],
   "continuity_notes": "A のローブは椅子の背に掛かっており、A は現在それを着ていない。B の杖は床に落ちていて、すぐには手元にない。",
-  "conversation_style_notes": "喧嘩になっても、現在着ていないローブをつかみ合う描写は避ける。"
+  "conversation_style_notes": "喧嘩になっても、現在着ていないローブをつかみ合う描写は避ける。",
+  "ending_condition": "互いの本音が表に出て、会話が自然に区切れるところまで。",
+  "turn_budget_hint": {
+    "has_explicit_ending": true,
+    "minimum_required_turns": 120,
+    "recommended_target_turns": 180,
+    "milestones": ["導入", "対立の激化", "終盤の山場", "着地"],
+    "pace_notes": "終盤の決着まで急ぎすぎず、最後の山場に十分なターンを残す。"
+  }
 }
 ```
 
@@ -171,7 +181,7 @@
     "reasoning_content": null,
     "usage": {},
     "thinking_enabled": false,
-    "model": "deepseek-v4-flash"
+    "model": "deepseek-v4-pro"
   },
   "public_event": {
     "turn": 1,
@@ -236,14 +246,22 @@
 
 | フィールド | 説明 |
 |---|---|
-| `target_turns` | ランダムに選ばれた目標ターン数。 |
+| `target_turns` | ランダムに選ばれた目標ターン数。入力に明示的な結末がある場合は、結末まで到達しやすいよう上振れ補正されることがあります。 |
 | `actual_turns` | 実際に生成された公開ターン数。 |
 | `min_turns` / `max_turns` | 生成時に指定されたターン数範囲。 |
 | `seed` | 生成シード。 |
 | `variation` | 元お題行に対するバリエーション番号。 |
 | `controller_temperature` / `controller_top_p` | thinking 無効時のターンコントローラーのサンプリング設定。 |
 | `actor_guard_enabled` / `actor_guard_model` | `--actor-guard` 使用時の第三者監視役設定。 |
-| `max_tokens_policy` | ペルソナ、コントローラー、アクター呼び出しの最大トークン設定。 |
+| `max_tokens_policy` | ペルソナ、コントローラー、アクター、アクターガード呼び出しの最大トークン設定。既定は DeepSeek V4 最大出力の 384K で、`0` または `None` は API へ `max_tokens` を送らないことを意味します。 |
+
+### Turn Cache
+
+turn cache は JSONL レコード本体には含まれない sidecar ファイルです。既定では `<out>.cache/<conversation_id>.json` に、persona controller 完了後と各ターン成功後の途中状態が保存されます。
+
+`--resume` 時に signature が一致すると、その cache から途中再開します。signature にはプロンプト hash、モデル、seed、turn 数、thinking 設定、max token 設定などが含まれます。
+
+既定では成功後も cache は残ります。既存 cache を上書きする場合は、古い cache が `<out>.cache/backups/YYYYMMDD_HHMMSS/` に退避されます。この日時はその実行で最初に cache バックアップが作成された瞬間のものです。同じ実行中、同じ conversation の cache は最初の 1 回だけ退避されます。`--delete-turn-cache-on-success` で成功後削除、`--no-turn-cache-backup` で上書き前退避を無効化できます。
 
 ### 推奨される使い方
 
@@ -383,9 +401,11 @@ Important subfields:
 | `global_style` | Genre, locale, and tone. |
 | `characters.A` / `characters.B` | Character profiles for each speaker. |
 | `relationship` | Relationship type, history, distance, and hidden tension. |
-| `scenario_constraints` | Setting, allowed topics/actions, avoid topics, continuity notes for clothing/equipment/props/positions, style notes, and ending condition. |
+| `scenario_constraints` | Setting, allowed topics/actions, avoid topics, continuity notes for clothing/equipment/props/positions, style notes, ending condition, and optional turn-budget hints. |
 
 `scenario_constraints` may include `continuity_notes`. This field records initial continuity-relevant state such as clothing, equipment, props, furniture, distance, and items that are or are not currently at hand.
+
+When the input explicitly describes an ending, `scenario_constraints` may include `ending_condition` and `turn_budget_hint`. `turn_budget_hint` helps the Turn Controller pace the scene toward the requested ending within `target_turns` instead of cutting off in the middle.
 
 Example:
 
@@ -394,7 +414,15 @@ Example:
   "setting": "an empty classroom at a magic academy",
   "allowed_actions": ["grab an arm", "pull a chair", "glance at the wand on the floor"],
   "continuity_notes": "A's robe is hanging on the back of a chair, so A is not currently wearing it. B's wand has fallen to the floor and is not immediately in B's hand.",
-  "conversation_style_notes": "If a fight starts, avoid describing both characters as grabbing each other's robes when the robe is not being worn."
+  "conversation_style_notes": "If a fight starts, avoid describing both characters as grabbing each other's robes when the robe is not being worn.",
+  "ending_condition": "Reach the point where both characters' real feelings are exposed and the scene can naturally close.",
+  "turn_budget_hint": {
+    "has_explicit_ending": true,
+    "minimum_required_turns": 120,
+    "recommended_target_turns": 180,
+    "milestones": ["opening", "escalation", "late climax", "landing"],
+    "pace_notes": "Do not rush the setup; leave enough turns for the final climax and landing."
+  }
 }
 ```
 
@@ -473,7 +501,7 @@ Each element has approximately this shape:
     "reasoning_content": null,
     "usage": {},
     "thinking_enabled": false,
-    "model": "deepseek-v4-flash"
+    "model": "deepseek-v4-pro"
   },
   "public_event": {
     "turn": 1,
@@ -538,14 +566,22 @@ Important fields:
 
 | Field | Description |
 |---|---|
-| `target_turns` | Randomly selected target turn count. |
+| `target_turns` | Randomly selected target turn count. If the source text explicitly includes an ending, this may be raised within the requested range so the scene has room to reach that ending. |
 | `actual_turns` | Actual number of generated public turns. |
 | `min_turns` / `max_turns` | Turn range requested at generation time. |
 | `seed` | Generation seed. |
 | `variation` | Variation index for the source line. |
 | `controller_temperature` / `controller_top_p` | Turn controller sampling settings when thinking is disabled. |
 | `actor_guard_enabled` / `actor_guard_model` | Third-person actor guard settings when `--actor-guard` is used. |
-| `max_tokens_policy` | Max-token settings for persona, controller, and actor calls. |
+| `max_tokens_policy` | Max-token settings for persona, controller, actor, and actor-guard calls. Defaults use DeepSeek V4 max output, 384K. `0` or `None` means `max_tokens` was omitted for that call. |
+
+### Turn Cache
+
+Turn cache files are sidecar files, not part of the JSONL record. By default, partial state is written to `<out>.cache/<conversation_id>.json` after Persona Controller finishes and after every successful turn.
+
+On `--resume`, a cache is used only when its signature matches the current run. The signature includes prompt hashes, model, seed, turn counts, thinking settings, max-token settings, and related generation inputs.
+
+Caches are kept after successful writes by default. When an existing cache is overwritten, the old file is backed up under `<out>.cache/backups/YYYYMMDD_HHMMSS/`. The timestamp is taken when the first cache backup is created in that run. During the same run, each conversation cache is backed up only once. Use `--delete-turn-cache-on-success` to remove successful caches and `--no-turn-cache-backup` to disable overwrite backups.
 
 ### Recommended Views
 

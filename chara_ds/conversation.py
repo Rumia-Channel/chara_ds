@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import math
+import json
+import os
 import random
+import sys
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
@@ -13,6 +17,8 @@ from .config import DATASET_NAME, PersonaLine, PromptBundle, SCHEMA_VERSION
 from .io_utils import now_iso, sha256_json, sha256_text
 from .progress import progress_update
 from .turn_cache import (
+    backup_turn_cache,
+    cache_path_for,
     compute_signature,
     load_turn_cache,
     save_turn_cache,
@@ -66,6 +72,49 @@ def latest_scene_state(turns: List[Dict[str, Any]]) -> Optional[str]:
         if isinstance(state, str) and state.strip():
             return state.strip()
     return None
+
+
+def estimate_ending_pacing_floor(user_txt: str, min_turns: int, max_turns: int) -> Optional[int]:
+    """Return a conservative turn floor when the source text contains an explicit ending.
+
+    This biases obvious end-anchored prompts toward the upper part of the turn band so
+    the conversation has enough room to reach the stated ending instead of cutting off
+    in the middle.
+    """
+
+    if min_turns <= 0 or max_turns < min_turns:
+        return None
+
+    text = user_txt.strip()
+    if not text:
+        return None
+
+    strong_markers = (
+        "決着",
+        "結末",
+        "終幕",
+        "最後まで",
+        "終わりまで",
+        "場面まで",
+        "勝敗がつく",
+        "勝敗が決まる",
+        "終わるところまで",
+        "ラスト",
+    )
+    if not any(marker in text for marker in strong_markers):
+        return None
+
+    span = max_turns - min_turns
+    if span <= 0:
+        return min_turns
+
+    if any(marker in text for marker in ("決着", "結末", "終幕", "最後まで", "終わりまで", "勝敗がつく", "勝敗が決まる")):
+        ratio = 0.8
+    else:
+        ratio = 0.7
+
+    floor = min_turns + math.ceil(span * ratio)
+    return min(max(floor, min_turns), max_turns)
 
 
 def normalize_persona_labels(persona_seed: Dict[str, Any]) -> Dict[str, Any]:
@@ -123,6 +172,8 @@ def generate_one_conversation(
     retries: int,
     retry_base_sleep: float,
     cache_dir: Optional[str] = None,
+    cache_diagnostics: bool = False,
+    backup_existing_cache: bool = True,
     existing_record: Optional[Dict[str, Any]] = None,
     target_turns_override: Optional[int] = None,
     conversation_id_override: Optional[str] = None,
@@ -137,6 +188,26 @@ def generate_one_conversation(
         if existing_record is not None
         else f"persona_deepseek_triple_ja_{conversation_index:08d}"
     )
+    ending_pacing_floor = estimate_ending_pacing_floor(persona_line.text, min_turns, max_turns)
+    if ending_pacing_floor is not None and ending_pacing_floor > target_turns:
+        target_turns = ending_pacing_floor
+        progress_update(
+            status="ending_pacing_floor_applied",
+            conversation_id=conversation_id,
+            current={
+                "stage": "ending_pacing_floor_applied",
+                "conversation_id": conversation_id,
+                "conversation_index": conversation_index,
+                "ending_pacing_floor": ending_pacing_floor,
+                "target_turns": target_turns,
+            },
+            event={
+                "type": "ending_pacing_floor_applied",
+                "conversation_id": conversation_id,
+                "ending_pacing_floor": ending_pacing_floor,
+                "target_turns": target_turns,
+            },
+        )
 
     if existing_record is not None:
         source_info = dict(existing_record.get("source") or {})
@@ -191,8 +262,52 @@ def generate_one_conversation(
     cached: Optional[Dict[str, Any]] = None
     if cache_dir:
         c = load_turn_cache(cache_dir, conversation_id)
+        cache_file_exists = False
+        cache_not_used_reason = "missing"
         if c is not None and c.get("signature") == cache_signature:
             cached = c
+            if cache_diagnostics:
+                print(
+                    json.dumps(
+                        {
+                            "event": "turn_cache_used",
+                            "conversation_id": conversation_id,
+                            "completed_turns": len(c.get("turns") or []),
+                            "target_turns": target_turns,
+                            "early_end": bool(c.get("early_end")),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+        else:
+            path = cache_path_for(cache_dir, conversation_id)
+            cache_file_exists = os.path.exists(path)
+            cache_not_used_reason = "missing" if not cache_file_exists else "signature_mismatch_or_unreadable"
+            if cache_file_exists and backup_existing_cache:
+                backup_turn_cache(cache_dir, conversation_id)
+        if cache_diagnostics and cached is None:
+            path = cache_path_for(cache_dir, conversation_id)
+            event = {
+                "event": "turn_cache_not_used",
+                "conversation_id": conversation_id,
+                "reason": cache_not_used_reason,
+                "cache_path": path,
+                "current_signature": cache_signature,
+                "target_turns": target_turns,
+                "backed_up": bool(cache_file_exists and backup_existing_cache),
+            }
+            if c is not None:
+                event.update(
+                    {
+                        "cached_signature": c.get("signature"),
+                        "cached_target_turns": c.get("target_turns"),
+                        "cached_completed_turns": len(c.get("turns") or []),
+                        "cached_early_end": bool(c.get("early_end")),
+                    }
+                )
+            print(json.dumps(event, ensure_ascii=False), file=sys.stderr, flush=True)
 
     if existing_record is not None:
         persona_generation = existing_record.get("persona_generation") or {}
@@ -228,6 +343,8 @@ def generate_one_conversation(
                 "target_turns": target_turns,
             },
             latest_public_timeline=public_timeline,
+            history_persona=persona_content,
+            history_turns=turns,
             event={
                 "type": "resuming_existing_record",
                 "conversation_id": conversation_id,
@@ -266,6 +383,8 @@ def generate_one_conversation(
                 "target_turns": target_turns,
             },
             latest_public_timeline=public_timeline,
+            history_persona=persona_content,
+            history_turns=turns,
             event={
                 "type": "resumed_from_cache",
                 "conversation_id": conversation_id,
@@ -301,6 +420,9 @@ def generate_one_conversation(
                 source_info=source_info,
                 user_txt=persona_line.text,
                 conversation_id=conversation_id,
+                min_turns=min_turns,
+                max_turns=max_turns,
+                target_turns=target_turns,
                 reasoning_effort=reasoning_effort,
                 max_tokens=persona_max_tokens,
                 thinking_enabled=persona_thinking_enabled,
@@ -360,6 +482,7 @@ def generate_one_conversation(
                     "early_end": early_end,
                     "saved_at": now_iso(),
                 },
+                backup_existing=backup_existing_cache,
             )
 
     if not early_end:
@@ -666,6 +789,7 @@ def generate_one_conversation(
                         "early_end": early_end,
                         "saved_at": now_iso(),
                     },
+                    backup_existing=backup_existing_cache,
                 )
 
             progress_update(

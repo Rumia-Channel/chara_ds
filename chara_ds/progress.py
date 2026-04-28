@@ -85,6 +85,114 @@ PROGRESS_STATE: Dict[str, Any] = {
 }
 
 
+def _history_meta(current: Optional[Dict[str, Any]], now: str) -> Dict[str, Any]:
+    cur = current if isinstance(current, dict) else {}
+    meta: Dict[str, Any] = {"time": now}
+    for key in ("stage", "turn_index", "turn", "speaker", "guard_round", "target_turns"):
+        if key in cur:
+            meta[key] = cur[key]
+    return meta
+
+
+def _append_agent_history(
+    slot: Dict[str, Any],
+    agent: str,
+    content: Any,
+    current: Optional[Dict[str, Any]],
+    now: str,
+) -> None:
+    history = slot.setdefault("agent_history", {})
+    if not isinstance(history, dict):
+        history = {}
+        slot["agent_history"] = history
+    items = history.setdefault(agent, [])
+    if not isinstance(items, list):
+        items = []
+        history[agent] = items
+    entry = {
+        **_history_meta(current, now),
+        "content": progress_safe(content, max_string=12000, max_list=160),
+    }
+    # The same content may be emitted by an in-progress stage and then a done
+    # stage. Keep the done stage, but avoid unbounded duplicate rows.
+    if items:
+        prev = items[-1]
+        if (
+            isinstance(prev, dict)
+            and prev.get("turn_index") == entry.get("turn_index")
+            and prev.get("speaker") == entry.get("speaker")
+            and prev.get("guard_round") == entry.get("guard_round")
+            and prev.get("content") == entry.get("content")
+        ):
+            prev.update(entry)
+            return
+    items.append(entry)
+    history[agent] = items[-300:]
+
+
+def _history_from_turns(
+    persona_content: Optional[Dict[str, Any]],
+    turns: Optional[List[Dict[str, Any]]],
+    now: str,
+) -> Dict[str, List[Dict[str, Any]]]:
+    history: Dict[str, List[Dict[str, Any]]] = {
+        "persona": [],
+        "controller": [],
+        "actor": [],
+        "actor_guard": [],
+    }
+    if persona_content is not None:
+        history["persona"].append(
+            {
+                "time": now,
+                "stage": "resumed_persona",
+                "content": progress_safe(persona_content, max_string=12000, max_list=160),
+            }
+        )
+    for turn in turns or []:
+        if not isinstance(turn, dict):
+            continue
+        turn_index = turn.get("turn")
+        controller = turn.get("controller") if isinstance(turn.get("controller"), dict) else {}
+        controller_content = controller.get("content") if isinstance(controller, dict) else None
+        if controller_content is not None:
+            tc = controller_content.get("turn_control") if isinstance(controller_content, dict) else {}
+            history["controller"].append(
+                {
+                    "time": now,
+                    "stage": "resumed_turn_controller",
+                    "turn_index": turn_index,
+                    "speaker": tc.get("next_speaker") if isinstance(tc, dict) else None,
+                    "content": progress_safe(controller_content, max_string=12000, max_list=160),
+                }
+            )
+        actor = turn.get("actor") if isinstance(turn.get("actor"), dict) else {}
+        actor_content = actor.get("content") if isinstance(actor, dict) else None
+        if actor_content is not None:
+            history["actor"].append(
+                {
+                    "time": now,
+                    "stage": "resumed_actor",
+                    "turn_index": turn_index,
+                    "speaker": actor.get("speaker") if isinstance(actor, dict) else None,
+                    "content": progress_safe(actor_content, max_string=12000, max_list=160),
+                }
+            )
+        guard = turn.get("actor_guard") if isinstance(turn.get("actor_guard"), dict) else {}
+        guard_content = guard.get("content") if isinstance(guard, dict) else None
+        if guard_content is not None:
+            history["actor_guard"].append(
+                {
+                    "time": now,
+                    "stage": "resumed_actor_guard",
+                    "turn_index": turn_index,
+                    "speaker": actor.get("speaker") if isinstance(actor, dict) else None,
+                    "content": progress_safe(guard_content, max_string=12000, max_list=160),
+                }
+            )
+    return history
+
+
 # -- Pause / stop control -----------------------------------------------------
 # PAUSE_EVENT semantics: SET = workers may run, CLEAR = workers must wait.
 PAUSE_EVENT = threading.Event()
@@ -231,6 +339,8 @@ def progress_update(
     conversation_id: Optional[str] = None,
     current: Optional[Dict[str, Any]] = None,
     latest_public_timeline: Optional[List[Dict[str, Any]]] = None,
+    history_persona: Optional[Dict[str, Any]] = None,
+    history_turns: Optional[List[Dict[str, Any]]] = None,
     last_persona: Optional[Dict[str, Any]] = None,
     last_controller: Optional[Dict[str, Any]] = None,
     last_actor: Optional[Dict[str, Any]] = None,
@@ -260,18 +370,40 @@ def progress_update(
             else:
                 prev = PROGRESS_STATE["active"].get(conversation_id) or {}
                 prev_timeline = prev.get("public_timeline")
+                prev_history = prev.get("agent_history")
                 if current is not None:
                     new_slot = progress_safe(current) or {}
                     if not isinstance(new_slot, dict):
                         new_slot = {"current": new_slot}
                 else:
                     new_slot = prev
+                if prev_history is not None and "agent_history" not in new_slot:
+                    new_slot["agent_history"] = prev_history
                 if latest_public_timeline is not None:
                     new_slot["public_timeline"] = progress_safe(latest_public_timeline)
                 elif prev_timeline is not None and current is not None:
                     new_slot["public_timeline"] = prev_timeline
+                if history_turns is not None or history_persona is not None:
+                    new_slot["agent_history"] = _history_from_turns(history_persona, history_turns, now)
+                if last_persona is not None:
+                    _append_agent_history(new_slot, "persona", last_persona, current, now)
+                if last_controller is not None:
+                    _append_agent_history(new_slot, "controller", last_controller, current, now)
+                if last_actor is not None:
+                    _append_agent_history(new_slot, "actor", last_actor, current, now)
+                if last_actor_guard is not None:
+                    _append_agent_history(new_slot, "actor_guard", last_actor_guard, current, now)
                 new_slot["updated_at"] = now
-                if current is not None or latest_public_timeline is not None:
+                if (
+                    current is not None
+                    or latest_public_timeline is not None
+                    or history_turns is not None
+                    or history_persona is not None
+                    or last_persona is not None
+                    or last_controller is not None
+                    or last_actor is not None
+                    or last_actor_guard is not None
+                ):
                     PROGRESS_STATE["active"][conversation_id] = new_slot
 
         if latest_public_timeline is not None:

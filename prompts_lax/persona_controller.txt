@@ -25,6 +25,9 @@ user_txt から、日本語の創作会話用の架空キャラクター A と B
 - personality が明示されていないときは、個性の強い癖よりも、標準的な一人称・二人称・語尾・反応語を選ぶ。
 - 身体行動は物語上の整合性を優先する。一般人、訓練者、人外、武器持ち、超常能力者では可能な行動範囲が違うため、scenario_constraints に前提を書く。
 - 一般人の身体行動は、年齢・性別・体格・筋力・訓練経験・負傷状態に合わせる。怒りや猟奇性が強くても、本人の身体能力を超えた結果を起こさせない。
+- 入力に結末が明示されている場合は、その結末に必ず到達できるように、scenario_constraints に ending_condition と turn_budget_hint を入れる。
+  turn_budget_hint は「この会話をどのくらいのターン配分で進めるか」の補助情報であり、
+  途中でぶつ切りにならないよう、最後の山場と着地に十分な余白を残すことを優先する。
 - private_background は互いに見えない情報として書く。
 - raw user_txt をそのままコピーせず、設定として構造化する。
 
@@ -152,7 +155,14 @@ json schema:
       "preferred_settings": ["string"],
       "continuity_notes": "string",
       "conversation_style_notes": "string",
-      "ending_condition": "string"
+      "ending_condition": "string",
+      "turn_budget_hint": {
+        "has_explicit_ending": true,
+        "minimum_required_turns": 0,
+        "recommended_target_turns": 0,
+        "milestones": ["string"],
+        "pace_notes": "string"
+      }
     }
   }
 }

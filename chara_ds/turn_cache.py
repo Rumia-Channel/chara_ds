@@ -24,7 +24,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -33,6 +35,8 @@ from typing import Any, Dict, Optional
 # two threads writing the same file (which can happen if a retry path saves
 # again before the previous save returns) cannot interleave.
 _CACHE_WRITE_LOCK = threading.Lock()
+_BACKUP_DIR_NAME: Optional[str] = None
+_BACKED_UP_PATHS: set[str] = set()
 
 
 def _safe_filename(conversation_id: str) -> str:
@@ -54,12 +58,54 @@ def ensure_cache_dir(cache_dir: str) -> None:
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
 
 
-def save_turn_cache(cache_dir: str, conversation_id: str, payload: Dict[str, Any]) -> None:
+def _backup_existing_cache(path: str, cache_dir: str) -> None:
+    if not os.path.exists(path):
+        return
+
+    global _BACKUP_DIR_NAME
+    resolved = str(Path(path).resolve())
+    if resolved in _BACKED_UP_PATHS:
+        return
+
+    if _BACKUP_DIR_NAME is None:
+        _BACKUP_DIR_NAME = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_dir = Path(cache_dir) / "backups" / _BACKUP_DIR_NAME
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    dest = backup_dir / Path(path).name
+    if dest.exists():
+        stem = dest.stem
+        suffix = dest.suffix
+        n = 2
+        while True:
+            candidate = backup_dir / f"{stem}_{n}{suffix}"
+            if not candidate.exists():
+                dest = candidate
+                break
+            n += 1
+    shutil.move(path, str(dest))
+    _BACKED_UP_PATHS.add(resolved)
+
+
+def backup_turn_cache(cache_dir: str, conversation_id: str) -> None:
+    """Move the current cache file to the run-level backup folder if present."""
+    ensure_cache_dir(cache_dir)
+    _backup_existing_cache(cache_path_for(cache_dir, conversation_id), cache_dir)
+
+
+def save_turn_cache(
+    cache_dir: str,
+    conversation_id: str,
+    payload: Dict[str, Any],
+    *,
+    backup_existing: bool = True,
+) -> None:
     ensure_cache_dir(cache_dir)
     path = cache_path_for(cache_dir, conversation_id)
     tmp = path + ".tmp"
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     with _CACHE_WRITE_LOCK:
+        if backup_existing:
+            _backup_existing_cache(path, cache_dir)
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(data)
         os.replace(tmp, path)

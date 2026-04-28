@@ -59,9 +59,9 @@
 
     <section class="col col-detail">
       <div class="tabs">
-        <button class="tab active" data-tab="actor">Last actor</button>
-        <button class="tab" data-tab="guard">Last guard</button>
-        <button class="tab" data-tab="controller">Last controller</button>
+        <button class="tab active" data-tab="actor">Actor</button>
+        <button class="tab" data-tab="guard">Guard</button>
+        <button class="tab" data-tab="controller">Controller</button>
         <button class="tab" data-tab="persona">Persona</button>
         <button class="tab" data-tab="queue">Queue <span class="badge" id="queue-badge">0</span></button>
         <button class="tab" data-tab="completed">Completed <span class="badge" id="completed-badge">0</span></button>
@@ -69,10 +69,10 @@
         <button class="tab" data-tab="errors">Errors <span class="badge" id="errors-badge">0</span></button>
       </div>
       <div class="tab-panes">
-        <pre class="tab-pane active" id="pane-actor"></pre>
-        <pre class="tab-pane" id="pane-guard"></pre>
-        <pre class="tab-pane" id="pane-controller"></pre>
-        <pre class="tab-pane" id="pane-persona"></pre>
+        <div class="tab-pane active agent-pane" id="pane-actor"></div>
+        <div class="tab-pane agent-pane" id="pane-guard"></div>
+        <div class="tab-pane agent-pane" id="pane-controller"></div>
+        <div class="tab-pane agent-pane" id="pane-persona"></div>
         <div class="tab-pane" id="pane-queue">
           <div class="queue-toolbar">
             <button id="queue-refresh" class="ctrl-btn">⟳ Refresh</button>

@@ -27,19 +27,21 @@ from .config import (
     PersonaLine,
     PromptBundle,
 )
-from .conversation import generate_one_conversation
+from .conversation import estimate_ending_pacing_floor, generate_one_conversation
 from .io_utils import (
     append_jsonl,
     count_jsonl_lines,
     load_persona_lines,
     load_prompts,
     now_iso,
+    JSONL_WRITE_LOCK,
     read_done_indices,
     sha256_text,
     sort_jsonl_by_conversation_id,
 )
 from .persona_buffer import PersonaBuffer
-from .turn_cache import delete_turn_cache, ensure_cache_dir
+from .turn_cache import delete_turn_cache, ensure_cache_dir, load_turn_cache
+from .turn_cache import compute_signature, save_turn_cache
 from .progress import (
     is_stopped,
     progress_update,
@@ -138,6 +140,180 @@ def rewrite_jsonl_records(path: str, records: List[Dict[str, Any]]) -> None:
         for record in records:
             f.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
     os.replace(tmp_path, path)
+
+
+def replace_jsonl_record(path: str, record: Dict[str, Any]) -> None:
+    cid = record.get("id") or record.get("conversation_id")
+    if not isinstance(cid, str) or not cid:
+        raise ValueError("record missing id for replacement")
+
+    with JSONL_WRITE_LOCK:
+        records = read_jsonl_records(path)
+        replaced = False
+        for pos, existing in enumerate(records):
+            existing_cid = existing.get("id") or existing.get("conversation_id")
+            if existing_cid == cid:
+                records[pos] = record
+                replaced = True
+                break
+        if not replaced:
+            records.append(record)
+        rewrite_jsonl_records(path, records)
+
+
+def backfill_short_records_to_cache(
+    *,
+    records: List[Dict[str, Any]],
+    cache_dir: str,
+    args: argparse.Namespace,
+    prompts: PromptBundle,
+    persona_thinking_enabled: bool,
+    turn_controller_thinking_enabled: bool,
+    actor_thinking_enabled: bool,
+    actor_guard_enabled: bool,
+    actor_guard_thinking_enabled: bool,
+    backup_existing_cache: bool,
+) -> Tuple[List[str], set[int]]:
+    """Copy short out.jsonl records back into per-turn cache for resumption.
+
+    The output file itself is left untouched here. The caller decides which
+    records should be re-run and, on success, replaces those records in out.
+    """
+
+    if not records:
+        return [], set()
+
+    backfilled_ids: List[str] = []
+    backfilled_done_indices: set[int] = set()
+
+    for record in records:
+        if actual_turn_count(record) >= args.finish_min_turns:
+            continue
+
+        conversation_id = record.get("id") or record.get("conversation_id")
+        if not isinstance(conversation_id, str) or not conversation_id:
+            continue
+
+        m = _CID_INDEX_RE.search(conversation_id)
+        if not m:
+            continue
+
+        try:
+            conversation_index = int(m.group(1))
+        except ValueError:
+            continue
+
+        if conversation_index > 0:
+            backfilled_done_indices.add(conversation_index - 1)
+
+        source = dict(record.get("source") or {})
+        variation = source.get("variation")
+        if not isinstance(variation, int):
+            variation = (record.get("generation_config") or {}).get("variation")
+        if not isinstance(variation, int):
+            variation = 1
+
+        line_number = source.get("line_number")
+        if not isinstance(line_number, int):
+            line_number = 0
+        source_text = source.get("text")
+        if not isinstance(source_text, str):
+            source_text = ""
+        source_sha256 = source.get("sha256")
+        if not isinstance(source_sha256, str) or not source_sha256:
+            source_sha256 = sha256_text(source_text)
+
+        rng = random.Random(args.seed + conversation_index * 1009 + variation * 9173)
+        target_turns = max(rng.randint(args.min_turns, args.max_turns), 0)
+        ending_pacing_floor = estimate_ending_pacing_floor(source_text, args.min_turns, args.max_turns)
+        if ending_pacing_floor is not None and ending_pacing_floor > target_turns:
+            target_turns = ending_pacing_floor
+
+        persona_generation = record.get("persona_generation") or {}
+        persona_content = persona_generation.get("controller_content") or {
+            "persona_seed": record.get("persona_seed") or {}
+        }
+        if not isinstance(persona_content, dict):
+            persona_content = {"persona_seed": record.get("persona_seed") or {}}
+
+        persona_reasoning = persona_generation.get("controller_reasoning_content")
+        persona_usage = persona_generation.get("usage") or {}
+        persona_raw = persona_generation.get("raw_content") or ""
+        public_timeline = list(record.get("public_timeline") or [])
+        turns = list(record.get("turns") or [])
+        usage_summary = record.get("usage") or {
+            "persona_controller": persona_usage,
+            "turn_controller": [],
+            "actors": [],
+            "actor_guard": [],
+        }
+
+        cache_signature = compute_signature(
+            {
+                "conversation_id": conversation_id,
+                "conversation_index": conversation_index,
+                "variation": variation,
+                "seed": args.seed,
+                "min_turns": args.min_turns,
+                "max_turns": args.max_turns,
+                "target_turns": target_turns,
+                "model": args.model,
+                "reasoning_effort": args.reasoning_effort,
+                "persona_thinking_enabled": persona_thinking_enabled,
+                "turn_controller_thinking_enabled": turn_controller_thinking_enabled,
+                "actor_thinking_enabled": actor_thinking_enabled,
+                "actor_guard_enabled": actor_guard_enabled,
+                "actor_guard_model": args.actor_guard_model,
+                "actor_guard_thinking_enabled": actor_guard_thinking_enabled,
+                "controller_temperature": args.controller_temperature,
+                "controller_top_p": args.controller_top_p,
+                "persona_max_tokens": args.persona_max_tokens,
+                "controller_max_tokens": args.controller_max_tokens,
+                "actor_max_tokens": args.actor_max_tokens,
+                "actor_guard_max_tokens": args.actor_guard_max_tokens,
+                "persona_line_sha256": source_sha256,
+                "persona_line_number": line_number,
+                "prompts": {
+                    "persona_controller_sha256": sha256_text(prompts.persona_controller),
+                    "turn_controller_sha256": sha256_text(prompts.turn_controller),
+                    "actor_sha256": sha256_text(prompts.actor),
+                    "actor_guard_sha256": sha256_text(prompts.actor_guard),
+                },
+            }
+        )
+
+        existing_cache = load_turn_cache(cache_dir, conversation_id)
+        if (
+            isinstance(existing_cache, dict)
+            and existing_cache.get("signature") == cache_signature
+            and len(existing_cache.get("turns") or []) >= len(turns)
+        ):
+            pass
+        else:
+            save_turn_cache(
+                cache_dir,
+                conversation_id,
+                {
+                    "signature": cache_signature,
+                    "conversation_id": conversation_id,
+                    "conversation_index": conversation_index,
+                    "variation": variation,
+                    "target_turns": target_turns,
+                    "persona_content": persona_content,
+                    "persona_reasoning": persona_reasoning,
+                    "persona_usage": persona_usage,
+                    "persona_raw": persona_raw if persona_raw else "",
+                    "public_timeline": public_timeline,
+                    "turns": turns,
+                    "usage_summary": usage_summary,
+                    "early_end": True,
+                    "saved_at": now_iso(),
+                },
+                backup_existing=backup_existing_cache,
+            )
+        backfilled_ids.append(conversation_id)
+
+    return backfilled_ids, backfilled_done_indices
 
 
 def persona_line_from_record(record: Dict[str, Any], persona_txt_path: str) -> PersonaLine:
@@ -251,6 +427,8 @@ def run_one_conversation_task(
             retries=args.retries,
             retry_base_sleep=args.retry_base_sleep,
             cache_dir=cache_dir,
+            cache_diagnostics=args.resume,
+            backup_existing_cache=not args.no_turn_cache_backup,
         )
         return {
             "ok": True,
@@ -333,7 +511,7 @@ def rewrite_one_conversation_task(
     client = get_thread_client(args.base_url)
 
     try:
-        if cache_dir:
+        if cache_dir and args.delete_turn_cache_on_success:
             delete_turn_cache(cache_dir, conversation_id)
         rewritten = generate_one_conversation(
             client=client,
@@ -364,6 +542,7 @@ def rewrite_one_conversation_task(
             retries=args.retries,
             retry_base_sleep=args.retry_base_sleep,
             cache_dir=cache_dir,
+            backup_existing_cache=not args.no_turn_cache_backup,
             conversation_id_override=conversation_id,
         )
         return {
@@ -466,6 +645,7 @@ def finish_one_conversation_task(
             retries=args.retries,
             retry_base_sleep=args.retry_base_sleep,
             cache_dir=cache_dir,
+            backup_existing_cache=not args.no_turn_cache_backup,
             existing_record=record,
             target_turns_override=args.finish_min_turns,
         )
@@ -622,7 +802,7 @@ def parse_args() -> argparse.Namespace:
         "--actor-guard",
         action="store_true",
         help=(
-            "After each actor turn, use a third-person DeepSeek flash judge to "
+            "After each actor turn, use a third-person DeepSeek judge to "
             "explain age/body/tone inconsistencies back to the actor and rewrite the turn."
         ),
     )
@@ -631,7 +811,7 @@ def parse_args() -> argparse.Namespace:
         "--actor-guard-thinking",
         choices=["default", "on", "off"],
         default="off",
-        help="Thinking mode for --actor-guard. default/off keeps flash judging cheap.",
+        help="Thinking mode for --actor-guard. default/off keeps guard judging cheaper.",
     )
 
     parser.add_argument("--controller-temperature", type=float, default=0.9)
@@ -676,13 +856,23 @@ def parse_args() -> argparse.Namespace:
             "Directory for per-turn conversation caches. Empty (default) means "
             "<out>.cache. Each in-flight conversation writes a snapshot after "
             "every successful turn so --resume can continue mid-conversation. "
-            "Caches are deleted after the final record is appended to the jsonl."
+            "Caches are kept after success unless --delete-turn-cache-on-success is set."
         ),
     )
     parser.add_argument(
         "--no-turn-cache",
         action="store_true",
         help="Disable per-turn caching (in-flight conversations are restarted from turn 1).",
+    )
+    parser.add_argument(
+        "--delete-turn-cache-on-success",
+        action="store_true",
+        help="Delete a per-turn cache file after its conversation is successfully written to out.jsonl.",
+    )
+    parser.add_argument(
+        "--no-turn-cache-backup",
+        action="store_true",
+        help="Disable timestamped backup of an existing per-turn cache file before it is overwritten.",
     )
     parser.add_argument("--resume", action="store_true")
 
@@ -834,12 +1024,11 @@ def main() -> None:
     register_persona_buffer(persona_buffer, args.persona_txt, initial_pool)
 
     errors_out = args.errors_out or args.out + ".errors.jsonl"
+    done_indices: set[int] = set()
+    already_done = 0
     if args.resume:
         done_indices = read_done_indices(args.out)
         already_done = len(done_indices)
-    else:
-        done_indices = set()
-        already_done = 0
 
     if args.no_turn_cache:
         cache_dir: Optional[str] = None
@@ -871,6 +1060,46 @@ def main() -> None:
         actor_guard_thinking_enabled = True
     else:
         actor_guard_thinking_enabled = False
+
+    resume_backfilled_done_indices: set[int] = set()
+    if args.resume and args.finish_min_turns > 0:
+        if args.min_turns < args.finish_min_turns:
+            args.min_turns = args.finish_min_turns
+        if args.max_turns < args.finish_min_turns:
+            args.max_turns = args.finish_min_turns
+        if cache_dir is not None:
+            records = read_jsonl_records(args.out)
+            backfilled_ids, resume_backfilled_done_indices = backfill_short_records_to_cache(
+                records=records,
+                cache_dir=cache_dir,
+                args=args,
+                prompts=prompts,
+                persona_thinking_enabled=persona_thinking_enabled,
+                turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+                actor_thinking_enabled=actor_thinking_enabled,
+                actor_guard_enabled=args.actor_guard,
+                actor_guard_thinking_enabled=actor_guard_thinking_enabled,
+                backup_existing_cache=not args.no_turn_cache_backup,
+            )
+            if backfilled_ids:
+                print(
+                    json.dumps(
+                        {
+                            "event": "resume_cache_backfill",
+                            "out": args.out,
+                            "backfilled": len(backfilled_ids),
+                            "ids": backfilled_ids,
+                            "finish_min_turns": args.finish_min_turns,
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+    work_indices: List[int] = [
+        i for i in range(total_requested) if i not in done_indices or i in resume_backfilled_done_indices
+    ]
 
     rewrite_ids = expand_id_args(args.rewrite_id)
     if args.rewrite_ids_file:
@@ -1033,7 +1262,7 @@ def main() -> None:
                     if result["ok"]:
                         replacements[pos] = result["record"]
                         rewritten_count += 1
-                        if cache_dir:
+                        if cache_dir and args.delete_turn_cache_on_success:
                             delete_turn_cache(cache_dir, result["record"]["id"])
                     else:
                         print(
@@ -1085,7 +1314,7 @@ def main() -> None:
                         if result["ok"]:
                             replacements[result["record_position"]] = result["record"]
                             rewritten_count += 1
-                            if cache_dir:
+                            if cache_dir and args.delete_turn_cache_on_success:
                                 delete_turn_cache(cache_dir, result["record"]["id"])
                         else:
                             print(
@@ -1155,7 +1384,7 @@ def main() -> None:
         )
         return
 
-    if args.finish_min_turns > 0:
+    if args.finish_min_turns > 0 and not args.resume:
         records = read_jsonl_records(args.out)
         targets = [
             (pos, rec)
@@ -1322,7 +1551,7 @@ def main() -> None:
                     if result["ok"]:
                         replacements[pos] = result["record"]
                         finished += 1
-                        if cache_dir:
+                        if cache_dir and args.delete_turn_cache_on_success:
                             delete_turn_cache(cache_dir, result["record"]["id"])
                     else:
                         print(
@@ -1373,7 +1602,7 @@ def main() -> None:
                         if result["ok"]:
                             replacements[result["record_position"]] = result["record"]
                             finished += 1
-                            if cache_dir:
+                            if cache_dir and args.delete_turn_cache_on_success:
                                 delete_turn_cache(cache_dir, result["record"]["id"])
                         else:
                             print(
@@ -1425,8 +1654,11 @@ def main() -> None:
         )
         return
 
-    if already_done >= total_requested:
-        print(f"nothing to do: {already_done} >= {total_requested}", file=sys.stderr)
+    if not work_indices:
+        print(
+            f"nothing to do: work_indices=0 (done={len(done_indices)}, backfilled={len(resume_backfilled_done_indices)}, total={total_requested})",
+            file=sys.stderr,
+        )
         return
 
     producer_stop_event: Optional[threading.Event] = None
@@ -1520,6 +1752,7 @@ def main() -> None:
         "auto_generate_situations": auto_gen_active,
         "total_requested": total_requested,
         "already_done": already_done,
+        "work_items": len(work_indices),
         "workers": args.workers,
         "model": args.model,
         "persona_thinking_enabled": persona_thinking_enabled,
@@ -1527,6 +1760,7 @@ def main() -> None:
         "actor_thinking_enabled": actor_thinking_enabled,
         "reasoning_effort": args.reasoning_effort,
         "python_quality_filtering": False,
+        "resume_backfilled": len(resume_backfilled_done_indices),
         "max_tokens_policy": {
             "persona_max_tokens": args.persona_max_tokens,
             "controller_max_tokens": args.controller_max_tokens,
@@ -1547,6 +1781,7 @@ def main() -> None:
         summary={
             "written": already_done,
             "total_requested": total_requested,
+            "work_items": len(work_indices),
             "workers": args.workers,
             "out": args.out,
         },
@@ -1554,12 +1789,11 @@ def main() -> None:
     )
 
     written = already_done
-    work_indices = [i for i in range(total_requested) if i not in done_indices]
 
     if args.workers <= 1:
         get_thread_client(args.base_url)
 
-        with tqdm(total=total_requested, initial=already_done) as pbar:
+        with tqdm(total=len(work_indices)) as pbar:
             for idx0 in work_indices:
                 if is_stopped():
                     break
@@ -1583,9 +1817,12 @@ def main() -> None:
                     continue
 
                 if result["ok"]:
-                    append_jsonl(args.out, result["record"])
-                    written += 1
-                    if cache_dir:
+                    if result.get("idx0") in resume_backfilled_done_indices:
+                        replace_jsonl_record(args.out, result["record"])
+                    else:
+                        append_jsonl(args.out, result["record"])
+                        written += 1
+                    if cache_dir and args.delete_turn_cache_on_success:
                         delete_turn_cache(cache_dir, result["record"]["id"])
 
                 progress_update(
@@ -1616,7 +1853,7 @@ def main() -> None:
             flush=True,
         )
 
-        with tqdm(total=total_requested, initial=already_done) as pbar:
+        with tqdm(total=len(work_indices)) as pbar:
             with ThreadPoolExecutor(max_workers=args.workers) as executor:
                 futures = [
                     executor.submit(
@@ -1645,9 +1882,12 @@ def main() -> None:
                         continue
 
                     if result["ok"]:
-                        append_jsonl(args.out, result["record"])
-                        written += 1
-                        if cache_dir:
+                        if result.get("idx0") in resume_backfilled_done_indices:
+                            replace_jsonl_record(args.out, result["record"])
+                        else:
+                            append_jsonl(args.out, result["record"])
+                            written += 1
+                        if cache_dir and args.delete_turn_cache_on_success:
                             delete_turn_cache(cache_dir, result["record"]["id"])
                     else:
                         print(
