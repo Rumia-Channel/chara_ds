@@ -668,7 +668,7 @@ def generate_one_conversation(
                         "suggested_fix_ja": guard_content.get("suggested_fix_ja") or "",
                             "instruction": (
                                 "第三者監視役の指摘を反映し、同じターンを人物設定・年齢・"
-                                "身体能力・口調に合う形で書き直す。"
+                                "身体能力・口調・直前文脈に合う形で書き直す。"
                             ),
                         }
                     progress_update(

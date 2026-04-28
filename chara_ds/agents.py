@@ -371,7 +371,7 @@ def call_actor_guard(
         "task": "judge_actor_turn_consistency",
         "instruction": (
             "第三者の編集者として、直前の actor output が人物設定・年齢・性別・"
-            "身体能力・場面状態・口調に合うかだけを判定する。"
+            "身体能力・場面状態・口調・直前文脈に合うかだけを判定する。"
         ),
     }
     characters = persona_seed.get("characters", {})
