@@ -181,24 +181,41 @@ def _rewrite_format_file(path: str, items: List[Any]) -> None:
                 f.write(getattr(it, "text", str(it)) + "\n")
 
 
-def progress_safe(obj: Any, *, max_string: int = 4000, max_list: int = 80) -> Any:
+def progress_safe(
+    obj: Any,
+    *,
+    max_string: int = 4000,
+    max_list: int = 80,
+    _seen: Optional[set] = None,
+) -> Any:
     if obj is None:
         return None
 
     if isinstance(obj, str):
         return clip_string(obj, max_string)
 
-    if isinstance(obj, dict):
-        return {
-            str(k): progress_safe(v, max_string=max_string, max_list=max_list)
-            for k, v in obj.items()
-        }
+    # 循環参照検出（dict/list のみに限定 — 整数はPythonがキャッシュするのでid()では誤検知する）
+    if _seen is None:
+        _seen = set()
 
-    if isinstance(obj, list):
-        return [
-            progress_safe(v, max_string=max_string, max_list=max_list)
-            for v in obj[-max_list:]
-        ]
+    if isinstance(obj, (dict, list)):
+        obj_id = id(obj)
+        if obj_id in _seen:
+            return "[circular reference]"
+        _seen.add(obj_id)
+
+        if isinstance(obj, dict):
+            result = {
+                str(k): progress_safe(v, max_string=max_string, max_list=max_list, _seen=_seen)
+                for k, v in obj.items()
+            }
+        else:
+            result = [
+                progress_safe(v, max_string=max_string, max_list=max_list, _seen=_seen)
+                for v in obj[-max_list:]
+            ]
+        _seen.discard(obj_id)
+        return result
 
     try:
         json.dumps(obj)

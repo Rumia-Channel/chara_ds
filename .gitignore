@@ -15,3 +15,5 @@ wheels/
 !/prompts/*.txt
 !/prompts_lax/*.txt
 *.cache
+# CocoIndex Code (ccc)
+/.cocoindex_code/

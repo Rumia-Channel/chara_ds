@@ -493,6 +493,7 @@ def generate_one_conversation(
                         persona_seed=persona_seed,
                         turn_control=turn_control,
                         public_timeline=public_timeline,
+                        conversation_pressure=turn_control.get("conversation_pressure"),
                         actor_content=actor_content_local,
                         turn_index=turn_index,
                         reasoning_effort=reasoning_effort,
@@ -503,7 +504,11 @@ def generate_one_conversation(
                     guard_attempts.append(
                         {
                             "round": guard_round,
-                            "content": guard_content,
+                            # Keep a snapshot here. If we store guard_content itself and later
+                            # attach guard_attempts back onto it, the final record becomes
+                            # self-referential and json.dumps() will fail with
+                            # "Circular reference detected".
+                            "content": dict(guard_content),
                             "usage": guard_usage,
                         }
                     )

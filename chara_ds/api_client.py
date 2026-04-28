@@ -11,11 +11,57 @@ from typing import Any, Dict, Optional, Tuple
 
 from openai import BadRequestError, OpenAI
 
-from .io_utils import append_jsonl, now_iso, parse_json
+from .io_utils import append_jsonl, clip_string, now_iso, parse_json
 from .progress import progress_update
 
 
 THREAD_LOCAL = threading.local()
+
+
+class ModelOutputParseError(ValueError):
+    """Raised when the model returned text that could not be parsed as JSON."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        source: str,
+        raw_output: str,
+        reasoning_content: Optional[str],
+        finish_reason: Any,
+        usage: Dict[str, Any],
+        parse_error: BaseException,
+    ) -> None:
+        super().__init__(message)
+        self.source = source
+        self.raw_output = raw_output
+        self.reasoning_content = reasoning_content
+        self.finish_reason = finish_reason
+        self.usage = usage
+        self.parse_error = parse_error
+
+
+def _parse_json_or_raise(
+    *,
+    text: str,
+    source: str,
+    reasoning_content: Optional[str],
+    finish_reason: Any,
+    usage: Dict[str, Any],
+) -> Dict[str, Any]:
+    try:
+        return parse_json(text)
+    except Exception as e:
+        snippet = clip_string(text, 4000)
+        raise ModelOutputParseError(
+            f"failed to parse model JSON from {source}: {e} | raw_head={snippet!r}",
+            source=source,
+            raw_output=text,
+            reasoning_content=reasoning_content,
+            finish_reason=finish_reason,
+            usage=usage,
+            parse_error=e,
+        ) from e
 
 
 def make_client(base_url: str) -> OpenAI:
@@ -204,11 +250,14 @@ def call_deepseek_json(
     # フォールバックとして救出を試みる。失敗したら従来どおり原因情報付きで例外。
     if not raw_content.strip():
         if reasoning_content and reasoning_content.strip():
-            try:
-                parsed = parse_json(reasoning_content)
-                return parsed, reasoning_content, usage, reasoning_content
-            except Exception:
-                pass
+            parsed = _parse_json_or_raise(
+                text=reasoning_content,
+                source="reasoning_content",
+                reasoning_content=reasoning_content,
+                finish_reason=finish_reason,
+                usage=usage,
+            )
+            return parsed, reasoning_content, usage, reasoning_content
 
         raise ValueError(
             "empty model content "
@@ -218,7 +267,13 @@ def call_deepseek_json(
             f"usage={usage})"
         )
 
-    parsed = parse_json(raw_content)
+    parsed = _parse_json_or_raise(
+        text=raw_content,
+        source="message.content",
+        reasoning_content=reasoning_content,
+        finish_reason=finish_reason,
+        usage=usage,
+    )
 
     return parsed, reasoning_content, usage, raw_content
 
@@ -403,17 +458,23 @@ def call_deepseek_tool(
     if not raw_args:
         body = (msg.content or "").strip()
         if body:
-            try:
-                parsed = parse_json(body)
-                return parsed, reasoning_content, usage, body
-            except Exception:
-                pass
+            parsed = _parse_json_or_raise(
+                text=body,
+                source="message.content",
+                reasoning_content=reasoning_content,
+                finish_reason=finish_reason,
+                usage=usage,
+            )
+            return parsed, reasoning_content, usage, body
         if reasoning_content and reasoning_content.strip():
-            try:
-                parsed = parse_json(reasoning_content)
-                return parsed, reasoning_content, usage, reasoning_content
-            except Exception:
-                pass
+            parsed = _parse_json_or_raise(
+                text=reasoning_content,
+                source="reasoning_content",
+                reasoning_content=reasoning_content,
+                finish_reason=finish_reason,
+                usage=usage,
+            )
+            return parsed, reasoning_content, usage, reasoning_content
 
         raise ValueError(
             "empty tool_call arguments "
@@ -424,7 +485,13 @@ def call_deepseek_tool(
             f"usage={usage})"
         )
 
-    parsed = parse_json(raw_args)
+    parsed = _parse_json_or_raise(
+        text=raw_args,
+        source="tool_call.arguments",
+        reasoning_content=reasoning_content,
+        finish_reason=finish_reason,
+        usage=usage,
+    )
     return parsed, reasoning_content, usage, raw_args
 
 
@@ -437,6 +504,31 @@ def call_with_retries(
     retry_base_sleep: float,
 ):
     last_error: Optional[BaseException] = None
+
+    def _error_details(exc: BaseException) -> Dict[str, Any]:
+        details: Dict[str, Any] = {}
+        raw_output = getattr(exc, "raw_output", None)
+        if isinstance(raw_output, str) and raw_output:
+            details["raw_output"] = clip_string(raw_output, 12000)
+            details["raw_output_length"] = len(raw_output)
+        reasoning_content = getattr(exc, "reasoning_content", None)
+        if isinstance(reasoning_content, str) and reasoning_content:
+            details["reasoning_content"] = clip_string(reasoning_content, 12000)
+            details["reasoning_content_length"] = len(reasoning_content)
+        source = getattr(exc, "source", None)
+        if isinstance(source, str) and source:
+            details["output_source"] = source
+        finish_reason = getattr(exc, "finish_reason", None)
+        if finish_reason is not None:
+            details["finish_reason"] = finish_reason
+        usage = getattr(exc, "usage", None)
+        if isinstance(usage, dict) and usage:
+            details["usage"] = usage
+        parse_error = getattr(exc, "parse_error", None)
+        if parse_error is not None:
+            details["parse_error_type"] = type(parse_error).__name__
+            details["parse_error"] = str(parse_error)
+        return details
 
     for attempt in range(1, retries + 1):
         try:
@@ -476,6 +568,7 @@ def call_with_retries(
                 "traceback": traceback.format_exc(limit=5),
                 "context": error_context,
             }
+            err.update(_error_details(e))
             append_jsonl(errors_out, err)
             progress_update(
                 status="error",
@@ -487,6 +580,9 @@ def call_with_retries(
                     "turn_index": error_context.get("turn_index"),
                     "error_type": type(e).__name__,
                     "error": str(e),
+                    **({
+                        "raw_output": err["raw_output"]
+                    } if "raw_output" in err else {}),
                 },
             )
             sleep_s = min(60.0, retry_base_sleep * (2 ** (attempt - 1)))
