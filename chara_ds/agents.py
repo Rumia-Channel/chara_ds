@@ -41,7 +41,9 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                             "enum": [
                                 "daily_conversation", "family_conflict", "sibling_fight",
                                 "romance_conflict", "spy_thriller", "action_drama",
-                                "injury_scene", "other",
+                                "injury_scene", "betrayal", "revenge", "escape",
+                                "horror", "dark_drama", "psychological_conflict",
+                                "school_conflict", "workplace_conflict", "other",
                             ],
                         },
                         "locale": {"type": "string", "description": "常に ja-JP"},
@@ -66,7 +68,11 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                                 "role": {"type": "string"},
                                 "age_band": {
                                     "type": "string",
-                                    "enum": ["teen", "20s", "30s", "40s", "50s", "60s+", "unspecified"],
+                                    "enum": [
+                                        "child", "early_teen", "teen", "late_teen",
+                                        "young_adult", "adult", "20s", "30s", "40s",
+                                        "50s", "60s+", "unspecified",
+                                    ],
                                 },
                                 "gender": {
                                     "type": "string",
@@ -130,7 +136,11 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                                 "role": {"type": "string"},
                                 "age_band": {
                                     "type": "string",
-                                    "enum": ["teen", "20s", "30s", "40s", "50s", "60s+", "unspecified"],
+                                    "enum": [
+                                        "child", "early_teen", "teen", "late_teen",
+                                        "young_adult", "adult", "20s", "30s", "40s",
+                                        "50s", "60s+", "unspecified",
+                                    ],
                                 },
                                 "gender": {
                                     "type": "string",
@@ -209,6 +219,24 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                     "required": ["type", "history", "distance", "hidden_tension"],
                     "additionalProperties": False,
                 },
+                "norm_profile_ids": {
+                    "type": "object",
+                    "description": "各キャラクターの設計で参照した age_gender_norms の id。未使用なら空配列。",
+                    "properties": {
+                        "A": {"type": "array", "items": {"type": "string"}},
+                        "B": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["A", "B"],
+                    "additionalProperties": False,
+                },
+                "explicit_overrides_from_user_txt": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "user_txt の明示指定が age_gender_norms の一般基準より優先された点。"
+                        "例: A は男勝り口調が明示されているため、その範囲では baseline より優先。"
+                    ),
+                },
                 "scenario_constraints": {
                     "type": "object",
                     "properties": {
@@ -255,7 +283,8 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
             },
             "required": [
                 "source_summary", "safety_transformations", "global_style",
-                "characters", "relationship", "scenario_constraints",
+                "characters", "relationship", "norm_profile_ids",
+                "explicit_overrides_from_user_txt", "scenario_constraints",
             ],
             "additionalProperties": False,
         }

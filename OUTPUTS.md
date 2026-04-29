@@ -81,6 +81,8 @@
 | `global_style` | ジャンル、地域、トーン。 |
 | `characters.A` / `characters.B` | 各話者のキャラクタープロフィール。 |
 | `relationship` | 関係性、過去、距離感、隠れた緊張。 |
+| `norm_profile_ids` | Persona 生成時に A/B それぞれへ適用・参照した `age_gender_norms` の id。 |
+| `explicit_overrides_from_user_txt` | 元お題の明示指定が一般的な age/gender norms より優先された点。 |
 | `scenario_constraints` | 場所、許可される話題や行動、避ける話題、衣装・装備・小道具・位置関係の連続性メモ、文体メモ、終了条件、必要に応じたターン配分ヒント。 |
 
 `scenario_constraints` には、必要に応じて `continuity_notes` が含まれます。これは、初期状態の衣装、装備、小道具、家具、距離、手元にある/ない物などを記録するためのメモです。
@@ -406,6 +408,8 @@ Important subfields:
 | `global_style` | Genre, locale, and tone. |
 | `characters.A` / `characters.B` | Character profiles for each speaker. |
 | `relationship` | Relationship type, history, distance, and hidden tension. |
+| `norm_profile_ids` | `age_gender_norms` ids applied or referenced for A/B during persona generation. |
+| `explicit_overrides_from_user_txt` | Source-text details that intentionally override the general age/gender norms. |
 | `scenario_constraints` | Setting, allowed topics/actions, avoid topics, continuity notes for clothing/equipment/props/positions, style notes, ending condition, and optional turn-budget hints. |
 
 `scenario_constraints` may include `continuity_notes`. This field records initial continuity-relevant state such as clothing, equipment, props, furniture, distance, and items that are or are not currently at hand.
