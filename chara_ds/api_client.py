@@ -41,6 +41,79 @@ class ModelOutputParseError(ValueError):
         self.parse_error = parse_error
 
 
+def _validate_json_schema_subset(value: Any, schema: Dict[str, Any], path: str = "$") -> None:
+    """Validate the JSON Schema subset used by our DeepSeek tool definitions.
+
+    DeepSeek validates strict tool calls server-side, but our defensive fallback
+    can parse JSON from message content / reasoning content. That fallback must
+    still reject malformed tool arguments locally.
+    """
+
+    expected_type = schema.get("type")
+    if expected_type == "object":
+        if not isinstance(value, dict):
+            raise ValueError(f"tool arguments schema violation at {path}: expected object")
+
+        required = schema.get("required") or []
+        for key in required:
+            if key not in value:
+                raise ValueError(f"tool arguments schema violation at {path}: missing required key {key!r}")
+
+        properties = schema.get("properties") or {}
+        if schema.get("additionalProperties") is False:
+            extra = sorted(set(value) - set(properties))
+            if extra:
+                raise ValueError(f"tool arguments schema violation at {path}: unexpected keys {extra!r}")
+
+        for key, child_schema in properties.items():
+            if key in value:
+                _validate_json_schema_subset(value[key], child_schema, f"{path}.{key}")
+        return
+
+    if expected_type == "array":
+        if not isinstance(value, list):
+            raise ValueError(f"tool arguments schema violation at {path}: expected array")
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for index, item in enumerate(value):
+                _validate_json_schema_subset(item, item_schema, f"{path}[{index}]")
+        return
+
+    if expected_type == "string":
+        if not isinstance(value, str):
+            raise ValueError(f"tool arguments schema violation at {path}: expected string")
+    elif expected_type == "boolean":
+        if not isinstance(value, bool):
+            raise ValueError(f"tool arguments schema violation at {path}: expected boolean")
+    elif expected_type == "integer":
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"tool arguments schema violation at {path}: expected integer")
+
+    enum = schema.get("enum")
+    if enum is not None and value not in enum:
+        raise ValueError(f"tool arguments schema violation at {path}: {value!r} is not in enum {enum!r}")
+
+
+def _parse_tool_arguments_or_raise(
+    *,
+    text: str,
+    source: str,
+    reasoning_content: Optional[str],
+    finish_reason: Any,
+    usage: Dict[str, Any],
+    tool_parameters: Dict[str, Any],
+) -> Dict[str, Any]:
+    parsed = _parse_json_or_raise(
+        text=text,
+        source=source,
+        reasoning_content=reasoning_content,
+        finish_reason=finish_reason,
+        usage=usage,
+    )
+    _validate_json_schema_subset(parsed, tool_parameters)
+    return parsed
+
+
 def _parse_json_or_raise(
     *,
     text: str,
@@ -458,21 +531,23 @@ def call_deepseek_tool(
     if not raw_args:
         body = (msg.content or "").strip()
         if body:
-            parsed = _parse_json_or_raise(
+            parsed = _parse_tool_arguments_or_raise(
                 text=body,
                 source="message.content",
                 reasoning_content=reasoning_content,
                 finish_reason=finish_reason,
                 usage=usage,
+                tool_parameters=tool_parameters,
             )
             return parsed, reasoning_content, usage, body
         if reasoning_content and reasoning_content.strip():
-            parsed = _parse_json_or_raise(
+            parsed = _parse_tool_arguments_or_raise(
                 text=reasoning_content,
                 source="reasoning_content",
                 reasoning_content=reasoning_content,
                 finish_reason=finish_reason,
                 usage=usage,
+                tool_parameters=tool_parameters,
             )
             return parsed, reasoning_content, usage, reasoning_content
 
@@ -485,12 +560,13 @@ def call_deepseek_tool(
             f"usage={usage})"
         )
 
-    parsed = _parse_json_or_raise(
+    parsed = _parse_tool_arguments_or_raise(
         text=raw_args,
         source="tool_call.arguments",
         reasoning_content=reasoning_content,
         finish_reason=finish_reason,
         usage=usage,
+        tool_parameters=tool_parameters,
     )
     return parsed, reasoning_content, usage, raw_args
 

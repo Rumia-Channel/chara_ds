@@ -244,8 +244,10 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                             "type": "string",
                             "enum": [
                                 "spoken", "chat", "workplace_chat", "family_chat",
-                                "store_conversation", "action_scene", "interrogation",
-                                "chase_scene", "injury_scene",
+                                "store_conversation", "school_conversation",
+                                "home_conversation", "outdoor_scene", "action_scene",
+                                "interrogation", "chase_scene", "injury_scene",
+                                "horror_scene", "psychological_conflict", "other",
                             ],
                         },
                         "setting": {"type": "string"},
@@ -541,7 +543,29 @@ TURN_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
 
 
 def validate_persona_output(obj: Dict[str, Any]) -> bool:
-    return isinstance(obj, dict) and isinstance(obj.get("persona_seed"), dict)
+    if not isinstance(obj, dict):
+        return False
+
+    persona_seed = obj.get("persona_seed")
+    if not isinstance(persona_seed, dict):
+        return False
+
+    characters = persona_seed.get("characters")
+    if not isinstance(characters, dict):
+        return False
+    if not isinstance(characters.get("A"), dict) or not isinstance(characters.get("B"), dict):
+        return False
+
+    norm_profile_ids = persona_seed.get("norm_profile_ids")
+    if not isinstance(norm_profile_ids, dict):
+        return False
+    if not isinstance(norm_profile_ids.get("A"), list) or not isinstance(norm_profile_ids.get("B"), list):
+        return False
+
+    if not isinstance(persona_seed.get("explicit_overrides_from_user_txt"), list):
+        return False
+
+    return isinstance(persona_seed.get("scenario_constraints"), dict)
 
 
 def validate_turn_control_output(obj: Dict[str, Any]) -> bool:
@@ -592,7 +616,9 @@ def validate_actor_guard_output(obj: Dict[str, Any]) -> bool:
         return False
     if not isinstance(obj.get("severity"), str):
         return False
-    return isinstance(obj.get("reason_ja"), str)
+    if not isinstance(obj.get("reason_ja"), str):
+        return False
+    return isinstance(obj.get("suggested_fix_ja"), str)
 
 
 def call_persona_controller(
@@ -967,6 +993,8 @@ def call_actor_guard(
         },
         "relationship": persona_seed.get("relationship", {}),
         "scenario_constraints": persona_seed.get("scenario_constraints", {}),
+        "norm_profile_ids": persona_seed.get("norm_profile_ids", {}),
+        "explicit_overrides_from_user_txt": persona_seed.get("explicit_overrides_from_user_txt", []),
         "age_gender_norms_index": prompts.age_gender_norms_index,
         "age_gender_norms_selected": load_selected_norms(
             prompts.age_gender_norms_dir,

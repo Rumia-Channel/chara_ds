@@ -113,7 +113,7 @@
 | フィールド | 説明 |
 |---|---|
 | `role` | 場面内での役割。 |
-| `age_band` | `teen`、`20s`、`30s` などの年齢帯。 |
+| `age_band` | `child`、`early_teen`、`teen`、`late_teen`、`young_adult`、`adult`、`20s`、`30s`、`40s`、`50s`、`60s+`、`unspecified` などの年齢帯。 |
 | `gender` | `female`、`male`、`nonbinary`、`unspecified` など。 |
 | `personality` | 性格。 |
 | `speech_style` | 口調、一人称、二人称、語尾、罵倒語、例文、禁止語句。 |
@@ -440,7 +440,7 @@ Each character usually contains:
 | Field | Description |
 |---|---|
 | `role` | Character role in the scene. |
-| `age_band` | Age band such as `teen`, `20s`, `30s`, etc. |
+| `age_band` | Age band such as `child`, `early_teen`, `teen`, `late_teen`, `young_adult`, `adult`, `20s`, `30s`, `40s`, `50s`, `60s+`, or `unspecified`. |
 | `gender` | `female`, `male`, `nonbinary`, or `unspecified`. |
 | `personality` | Character personality description. |
 | `speech_style` | Register, first person, second person, sentence endings, swear words, examples, forbidden phrases. |

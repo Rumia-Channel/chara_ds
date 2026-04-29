@@ -143,7 +143,7 @@ uv run python main.py `
 
 `age_gender_norms/` が prompt directory にある場合は、Persona Controller と Actor Guard の共通参照データとして読み込まれます。これは lax/通常で分ける創作強度ではなく、年齢・性別・特殊属性ごとの一般的な口調・感情反応基準です。
 
-- `age_gender_norms/index.json`: 利用可能な属性一覧。例: 女子中学生、女子高校生、男子中学生、成人女性、メスガキ、ロリババア。
+- `age_gender_norms/index.json`: 利用可能な属性一覧。例: 女子小学生、女子中学生、女子高校生、男子中学生、成人女性、メスガキ、ロリババア。
 - `age_gender_norms/*.json`: 属性ごとの一人称・二人称、喜び、悲しみ、照れ、困惑、嫉妬、安心、悲鳴、痛み、制止、怒り語彙、避ける粗野表現、Actor Guard の判定規則。
 - Persona Controller には入力文から近い属性だけを `age_gender_norms_selected` として渡します。
 - Actor Guard には speaker の persona から近い属性だけを `age_gender_norms_selected` として渡します。
