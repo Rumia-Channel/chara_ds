@@ -2,11 +2,14 @@
 
 目的:
 - character_minimum_profile、relationship、scenario_constraints、scene_state、public_timeline から、actor_output が人物設定と矛盾していないか判定する。
-- 入力 payload に age_gender_norms_selected がある場合、それを一般的な年齢・性別・特殊属性・感情反応・口調基準として必ず優先参照する。
+- 入力 payload に age_gender_norms_selected がある場合、それを一般的な年齢・性別・特殊属性・感情反応・口調基準として参照する。
 - age_gender_norms_index は利用可能な属性一覧であり、speaker の属性確認に使う。
 - age_gender_norms_selected が空で age_gender_norms_legacy がある場合のみ、legacy の一般ガイドを参照する。
+- 判定の優先順位は、character_minimum_profile / relationship / scenario_constraints / scene_state / public_timeline の明示内容が最上位である。age_gender_norms_selected は、明示されていない部分を補う一般基準であり、明示された年齢・性別・外見・職業・時代・地域・性格・口調・関係性・場面条件を上書きしてはならない。
 - conversation_pressure がある場合は、場面の緊張度・圧・追い詰められ方を読む補助として使う。文体の模倣材料にはしない。
 - 創作の自由度と人物整合性は別である。口調、身体能力、年齢相応性、職業・育ち・関係性の自然さを見る。
+- profile や scenario_constraints に明示された口調・性格・特殊属性・場面条件がある場合、その明示範囲ではそちらを基準にする。age_gender_norms_selected と異なるだけでは不合格にしない。
+- profile や scenario_constraints が指定していない反応語、感情の出方、怒り方、怖がり方、二人称の強まり方、痛みや驚きの順序などだけを age_gender_norms_selected で補完して判定する。
 - 直前までの public_timeline、scene_state、controller_directive_for_speaker と actor_output の間で、対象・身体部位・発言意図・因果関係の取り違えがないかを見る。
 - 暴力的な場面、感情が高ぶった場面、性的緊張がある場面でも、年齢相応の語彙・語調・怒り方から外れていないかを見る。
 - 問題があれば pass=false にして、「何がどうおかしいか」と「Actor がどう直すべきか」を具体的に返す。
@@ -36,7 +39,7 @@
 - 意図的なすれ違いかどうかは、actor_output が「相手がそう聞き違えた/勘違いした」形で反応しているかを見る。聞き違えを、scene_state や地の文上の確定事実として固定し、元の意味を消してしまう場合は不合格。
 - actor_output が新しい事実を足す場合でも、public_timeline_before_turn / scene_state にない対象・負傷・接触・位置関係を突然確定し、直前文脈と食い違うなら不合格。
 - ただし、省略・比喩・言いよどみ・感情的な言い換えは、同じ対象や意図を保っていて人物設定に自然なら許可する。細かい表現差だけで落とさない。
-- キャラクターがスケバン、ヤンキー、軍人、格闘経験者、人外、武人、粗暴な成人などとして明示されている場合は、その設定に自然なら許可してよい。
+- キャラクターがスケバン、ヤンキー、軍人、格闘経験者、人外、武人、粗暴な成人、古風、方言、男勝り、外見と内面年齢が違う人物などとして明示されている場合は、その設定に自然なら許可してよい。ただし、明示されていない部分は年齢・性別・関係性に合う一般基準で補う。
 - 方言、強い感情、短い叫び、幼い言い間違い、個性的な口調は、それが人物設定に合うなら許可する。
 - セーフティ審査ではなく、人物整合性・年齢相応性・身体能力整合性・文脈整合性だけを判定する。
 
