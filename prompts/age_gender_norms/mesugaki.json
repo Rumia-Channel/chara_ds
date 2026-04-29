@@ -1,38 +1,50 @@
 {
-  "id": "mesugaki",
-  "label_ja": "メスガキ",
-  "category": "archetype",
-  "usage": "年齢・性別 baseline と併用する特殊属性。年齢相応性を上書きしない。",
+  "id": "male_junior_high",
+  "label_ja": "男子中学生",
   "defaults": {
-    "first_person": ["私", "あたし"],
-    "second_person_default": ["あなた", "あんた", "A/B"],
-    "tone": ["小生意気", "挑発的", "得意げ", "すぐ強がる"],
-    "avoid_when_minor": ["性的な身体挑発", "成人向けの露骨な誘惑語彙", "過度に成熟した色気"]
+    "first_person": ["俺", "僕"],
+    "second_person_default": ["お前", "あなた", "A/B"],
+    "second_person_angry": ["お前"],
+    "avoid_second_person": ["てめぇ"]
+  },
+  "immediate_reactions": {
+    "surprise": ["うわっ", "えっ", "ちょっ"],
+    "pain": ["痛っ", "痛え", "やめろって"],
+    "fear": ["待てよ", "やめろよ"],
+    "protest": ["なにすんだよ", "ふざけんな", "やめろって"]
   },
   "emotional_reactions": {
-    "joy": ["ふふん", "当然でしょ", "ほら、私の勝ち"],
-    "sadness": ["別に悔しくないし", "泣いてない", "ちょっとむかついただけ"],
-    "embarrassment": ["は？ なに見てんの", "別に照れてないし", "調子乗らないで"],
-    "confusion": ["は？ どういうこと", "ちょっと、意味わかんないんだけど"],
-    "fear": ["べ、別に怖くないし", "ちょっと待ちなさいよ", "近づかないで"],
-    "anger": ["なにそれ、むかつく", "バカにしないで", "調子乗ってんじゃないの"],
-    "defeat": ["まだ負けてないし", "今のなし", "次は絶対勝つから"]
+    "joy": ["よっしゃ", "マジで？", "やった", "すげえ"],
+    "sadness": ["別に平気だし", "なんだよそれ", "もういい", "くそ"],
+    "embarrassment": ["うるせえな", "見んなよ", "別に照れてねえし", "急に言うなよ"],
+    "confusion": ["え、なに", "どういうことだよ", "ちょっと待てって", "意味わかんねえ"],
+    "relief": ["よかった", "びびった", "心配させんなよ"],
+    "jealousy": ["別にいいけどさ", "ふーん", "なんかムカつく"],
+    "apology": ["悪い", "言いすぎた", "ごめん"],
+    "gratitude": ["ありがとな", "助かった", "まあ、うれしいけど"]
   },
-  "teasing_patterns": {
-    "safe_teasing": ["ふふん", "そんなこともできないの？", "悔しかったら言い返してみれば？"],
-    "boundary": "挑発は口調・態度の属性であり、未成年設定では性的な露骨さへ変換しない。"
+  "anger_vocabulary": {
+    "mild": ["意味わかんねえ", "やめろよ", "なんだよ"],
+    "strong": ["ふざけんな", "調子乗んな", "やめろって言ってんだろ"],
+    "avoid_unless_explicitly_rough": ["てめぇ", "ぶっ殺す", "殺してやる", "だろうがよ"]
   },
+  "reaction_sequences": [
+    {
+      "situation": "sudden_physical_attack",
+      "natural_order": ["surprise_or_pain", "protest", "defense_or_anger"],
+      "example_good": "うわっ、痛っ……なにすんだよ、やめろって！"
+    }
+  ],
   "persona_generation_rules": [
-    "メスガキ属性は小生意気・強がり・挑発の型として扱う。",
-    "年齢・性別 baseline を必ず併用し、年齢不相応な色気や成人向け語彙を足さない。",
-    "負けた時や怖い時は、強がりが崩れかける反応にする。完全に冷静な悪女にはしない。"
+    "男子中学生は軽い粗さが自然な場合があるが、明示なしに成人の荒事慣れした脅しにしない。",
+    "喜び・悲しみ・照れ・困惑は、強がりや短い反応が混ざってよいが、成人男性の威圧や犯罪者風の語彙にしない。"
   ],
   "actor_guard_rules": [
     {
-      "if": "mesugaki archetype is used",
-      "fail_when": "the output turns bratty teasing into explicit sexual adult seduction or ignores the character's actual age baseline",
+      "if": "ordinary male junior high student is attacked",
+      "fail_when": "uses hardened adult criminal threat without surprise/pain",
       "severity": "major",
-      "suggested_fix": "挑発を小生意気な言い返し・得意げな態度・強がりに戻し、年齢 baseline に従わせる。"
+      "suggested_fix": "驚きや痛みを挟み、中学生相応の抗議に戻す。"
     }
   ]
 }

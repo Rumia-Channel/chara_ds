@@ -2,14 +2,26 @@
   "version": 1,
   "attributes": [
     {
+      "id": "female_elementary_school",
+      "label_ja": "女子小学生",
+      "category": "age_gender_baseline",
+      "age_band": "child",
+      "school_stage": "elementary_school",
+      "gender": "female",
+      "aliases": ["小学生女子", "女子小学生", "女子小", "female elementary school", "elementary school girl"],
+      "tags": ["baseline", "school", "child", "emotion_reactions", "speech_style", "safety_guard"],
+      "file": "female_elementary_school.json",
+      "summary": "普通寄りの女子小学生の喜怒哀楽、困惑、照れ、痛み、制止、助けを求める反応、避ける粗野表現。"
+    },
+    {
       "id": "female_junior_high",
       "label_ja": "女子中学生",
       "category": "age_gender_baseline",
-      "age_band": "teen",
+      "age_band": "early_teen",
       "school_stage": "junior_high",
       "gender": "female",
-      "aliases": ["中学生女子", "女子中学生", "女子中", "female teen junior high"],
-      "tags": ["baseline", "school", "emotion_reactions", "speech_style"],
+      "aliases": ["中学生女子", "女子中学生", "女子中", "female junior high student", "female early teen"],
+      "tags": ["baseline", "school", "teen", "emotion_reactions", "speech_style", "safety_guard"],
       "file": "female_junior_high.json",
       "summary": "普通寄りの女子中学生の喜怒哀楽、困惑、照れ、痛み、制止、怒り語彙、避ける粗野表現。"
     },
@@ -17,36 +29,36 @@
       "id": "female_high_school",
       "label_ja": "女子高校生",
       "category": "age_gender_baseline",
-      "age_band": "teen",
+      "age_band": "late_teen",
       "school_stage": "high_school",
       "gender": "female",
-      "aliases": ["高校生女子", "女子高校生", "女子高生", "female high school"],
-      "tags": ["baseline", "school", "emotion_reactions", "speech_style"],
+      "aliases": ["高校生女子", "女子高校生", "女子高生", "female high school student", "female late teen"],
+      "tags": ["baseline", "school", "teen", "emotion_reactions", "speech_style", "safety_guard"],
       "file": "female_high_school.json",
-      "summary": "普通寄りの女子高校生の喜怒哀楽、困惑、照れ、攻撃直後反応、怒り語彙、二人称の強まり。"
+      "summary": "普通寄りの女子高校生の喜怒哀楽、困惑、照れ、痛み、制止、怒り語彙、二人称の強まり。"
     },
     {
       "id": "male_junior_high",
       "label_ja": "男子中学生",
       "category": "age_gender_baseline",
-      "age_band": "teen",
+      "age_band": "early_teen",
       "school_stage": "junior_high",
       "gender": "male",
-      "aliases": ["中学生男子", "男子中学生", "男子中", "male teen junior high"],
-      "tags": ["baseline", "school", "emotion_reactions", "speech_style"],
+      "aliases": ["中学生男子", "男子中学生", "男子中", "male junior high student", "male early teen"],
+      "tags": ["baseline", "school", "teen", "emotion_reactions", "speech_style", "safety_guard"],
       "file": "male_junior_high.json",
-      "summary": "普通寄りの男子中学生の喜怒哀楽、困惑、照れ、痛み、強がり、怒り語彙、避ける成人的脅し。"
+      "summary": "普通寄りの男子中学生の喜怒哀楽、困惑、照れ、痛み、強がり、怒り語彙、避ける成人的な威圧表現。"
     },
     {
       "id": "adult_female",
       "label_ja": "成人女性",
       "category": "age_gender_baseline",
-      "age_band": "20s",
+      "age_band": "adult",
       "gender": "female",
-      "aliases": ["女性", "成人女性", "20代女性", "30代女性", "adult female"],
-      "tags": ["baseline", "adult", "emotion_reactions", "speech_style"],
+      "aliases": ["女性", "成人女性", "大人の女性", "20代女性", "30代女性", "40代女性", "adult female", "adult woman"],
+      "tags": ["baseline", "adult", "emotion_reactions", "speech_style", "safety_guard"],
       "file": "adult_female.json",
-      "summary": "一般的な成人女性の喜怒哀楽、困惑、照れ、攻撃直後反応、制止、怒り語彙。"
+      "summary": "一般的な成人女性の喜怒哀楽、困惑、照れ、痛み、制止、境界表明、怒り語彙。"
     },
     {
       "id": "mesugaki",
@@ -54,10 +66,10 @@
       "category": "archetype",
       "archetype": "provocative_bratty_girl",
       "gender": "female",
-      "aliases": ["メスガキ", "小生意気な女子", "生意気な女の子", "挑発的な少女", "bratty girl", "mesugaki"],
-      "tags": ["archetype", "provocation", "teasing", "speech_style", "emotion_reactions"],
+      "aliases": ["メスガキ", "小生意気な女子", "生意気な女の子", "強がる女子", "挑発的な女子", "bratty girl", "provocative bratty girl", "mesugaki"],
+      "tags": ["archetype", "provocation", "teasing", "bratty", "strong_front", "speech_style", "emotion_reactions", "requires_age_baseline"],
       "file": "mesugaki.json",
-      "summary": "小生意気・挑発的な女子キャラの煽り、得意げ、悔しがり、怖がりの崩れ方。年齢 baseline と併用する。"
+      "summary": "小生意気・挑発的な女子キャラの煽り、得意げ、負け惜しみ、照れ隠し、怖がりの崩れ方。年齢 baseline と併用する。"
     },
     {
       "id": "loli_baba",
@@ -65,10 +77,10 @@
       "category": "archetype",
       "archetype": "ancient_mind_young_appearance",
       "gender": "female",
-      "aliases": ["ロリババア", "外見幼女中身老人", "年寄り口調の少女", "長命種の少女", "ancient girl", "loli baba"],
-      "tags": ["archetype", "archaic_speech", "gap_moe", "speech_style", "emotion_reactions"],
+      "aliases": ["ロリババア", "幼い外見の長命者", "年寄り口調の少女", "長命種の少女", "外見は幼いが中身は老成", "ancient mind young appearance", "ancient girl", "young appearance old mind"],
+      "tags": ["archetype", "archaic_speech", "age_gap_premise", "young_appearance_old_mind", "long_lived_character", "speech_style", "emotion_reactions", "requires_age_baseline"],
       "file": "loli_baba.json",
-      "summary": "外見は幼いが中身・経験が老成したキャラの語彙、感情反応、年齢ギャップの扱い。外見年齢 baseline と併用する。"
+      "summary": "幼く見える外見と老成した内面を分けて扱うキャラの語彙、古風な口調、感情反応、年齢ギャップの扱い。外見年齢 baseline と併用する。"
     }
   ]
 }
