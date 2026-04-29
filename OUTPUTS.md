@@ -128,6 +128,7 @@
 
 `turns` は、各会話ターンの完全な生成記録です。
 `actor_guard` は `--actor-guard` を指定した場合のみ含まれます。Guard が不合格を返した場合、その `reason_ja` と `suggested_fix_ja` は次の Actor 呼び出しに `actor_guard_feedback` として渡され、同じターンの書き直しに使われます。
+`actor_guard.content.filler_analysis` には、Actor Guard が判定した現在発話の先頭フィラー/口癖 family、同一話者での連続回数、直近発話内の反復回数、反復問題かどうかが入ります。この分類は Python の固定リストではなく Guard の判定結果として public timeline に保存され、次ターン以降の反復管理に使われます。
 
 各要素はおおむね以下の形です。
 
@@ -455,6 +456,7 @@ Each character usually contains:
 
 `turns` contains the full generation trace for every dialogue turn.
 `actor_guard` is present only when `--actor-guard` is enabled. If the guard fails an output, its `reason_ja` and `suggested_fix_ja` are passed to the next Actor call as `actor_guard_feedback` for rewriting the same turn.
+`actor_guard.content.filler_analysis` stores the Actor Guard's classification of the current leading filler / verbal habit family, same-speaker consecutive count, recent repetition count, and whether it is a repetition problem. The family classification is produced by the Guard rather than a Python hard-coded list, then stored in the public timeline for later turns.
 
 Each element has approximately this shape:
 

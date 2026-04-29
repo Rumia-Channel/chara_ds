@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from openai import OpenAI
 
-from .api_client import call_deepseek_json, call_deepseek_tool
+from .api_client import ModelOutputParseError, call_deepseek_json, call_deepseek_tool
 from .config import PromptBundle
 from .norms import load_selected_norms, select_norm_ids_for_profile, select_norm_ids_from_text
 
@@ -279,6 +279,7 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                         "medium", "setting", "opening_situation", "allowed_topics",
                         "allowed_actions", "avoid_topics", "preferred_settings",
                         "continuity_notes", "conversation_style_notes",
+                        "ending_condition", "turn_budget_hint",
                     ],
                     "additionalProperties": False,
                 },
@@ -321,8 +322,47 @@ ACTOR_GUARD_TOOL_PARAMETERS: Dict[str, Any] = {
             "type": "string",
             "description": "pass=false のとき、Actor がどう直すべきかを短く具体的に書く。",
         },
+        "filler_analysis": {
+            "type": "object",
+            "description": "同一話者の口癖・笑い出し・フィラー反復の判定結果。",
+            "properties": {
+                "current_leading_filler_text": {
+                    "type": "string",
+                    "description": "現在発話の先頭にある口癖・笑い出し・フィラー。なければ空文字。",
+                },
+                "current_leading_filler_family": {
+                    "type": "string",
+                    "description": "表記ゆれをまとめた family 名。例: ふふ系、えっと系、ねえ系。なければ空文字。",
+                },
+                "consecutive_including_current": {
+                    "type": "integer",
+                    "description": "同一話者で同じ family が連続している回数。現在発話に family がなければ 0。",
+                },
+                "recent_same_filler_count_including_current": {
+                    "type": "integer",
+                    "description": "同一話者の直近5発話相当で同じ family が出た回数。現在発話に family がなければ 0。",
+                },
+                "is_repeated_filler_problem": {
+                    "type": "boolean",
+                    "description": "反復が不自然で修正対象なら true。",
+                },
+                "notes_ja": {
+                    "type": "string",
+                    "description": "判定メモ。問題なしなら短く理由を書く。",
+                },
+            },
+            "required": [
+                "current_leading_filler_text",
+                "current_leading_filler_family",
+                "consecutive_including_current",
+                "recent_same_filler_count_including_current",
+                "is_repeated_filler_problem",
+                "notes_ja",
+            ],
+            "additionalProperties": False,
+        },
     },
-    "required": ["pass", "severity", "reason_ja", "suggested_fix_ja"],
+    "required": ["pass", "severity", "reason_ja", "suggested_fix_ja", "filler_analysis"],
     "additionalProperties": False,
 }
 
@@ -542,6 +582,19 @@ TURN_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
 }
 
 
+def should_retry_tool_without_thinking(exc: ValueError) -> bool:
+    """DeepSeek thinking mode can emit empty or malformed tool arguments."""
+
+    if isinstance(exc, ModelOutputParseError):
+        return True
+
+    message = str(exc)
+    return (
+        "empty tool_call arguments" in message
+        or "tool arguments schema violation" in message
+    )
+
+
 def validate_persona_output(obj: Dict[str, Any]) -> bool:
     if not isinstance(obj, dict):
         return False
@@ -618,7 +671,9 @@ def validate_actor_guard_output(obj: Dict[str, Any]) -> bool:
         return False
     if not isinstance(obj.get("reason_ja"), str):
         return False
-    return isinstance(obj.get("suggested_fix_ja"), str)
+    if not isinstance(obj.get("suggested_fix_ja"), str):
+        return False
+    return isinstance(obj.get("filler_analysis"), dict)
 
 
 def call_persona_controller(
@@ -678,7 +733,7 @@ def call_persona_controller(
             thinking_enabled=thinking_enabled,
         )
     except ValueError as e:
-        if thinking_enabled and "empty tool_call arguments" in str(e):
+        if thinking_enabled and should_retry_tool_without_thinking(e):
             args, reasoning, usage, raw = call_deepseek_tool(
                 client,
                 model=model,
@@ -692,6 +747,8 @@ def call_persona_controller(
                 max_tokens=max_tokens,
                 reasoning_effort=reasoning_effort,
                 thinking_enabled=False,
+                temperature=0.0,
+                top_p=1.0,
             )
         else:
             raise
@@ -798,7 +855,7 @@ def call_turn_controller(
             top_p=top_p,
         )
     except ValueError as e:
-        if thinking_enabled and "empty tool_call arguments" in str(e):
+        if thinking_enabled and should_retry_tool_without_thinking(e):
             args, reasoning, usage, raw = call_deepseek_tool(
                 client,
                 model=model,
@@ -812,8 +869,8 @@ def call_turn_controller(
                 max_tokens=max_tokens,
                 reasoning_effort=reasoning_effort,
                 thinking_enabled=False,
-                temperature=temperature,
-                top_p=top_p,
+                temperature=0.0,
+                top_p=1.0,
             )
         else:
             raise
@@ -904,7 +961,7 @@ def call_actor(
         # DeepSeek thinking mode occasionally puts everything into reasoning and
         # returns finish_reason=stop with no tool_call. Retry once with thinking
         # disabled; strict tool schema still enforces the actor payload shape.
-        if thinking_enabled and "empty tool_call arguments" in str(e):
+        if thinking_enabled and should_retry_tool_without_thinking(e):
             args, reasoning, usage, raw = call_deepseek_tool(
                 client,
                 model=model,
@@ -918,6 +975,8 @@ def call_actor(
                 max_tokens=max_tokens,
                 reasoning_effort=reasoning_effort,
                 thinking_enabled=False,
+                temperature=0.0,
+                top_p=1.0,
             )
         else:
             raise
@@ -958,6 +1017,48 @@ def _compact_character_profile(profile: Any) -> Dict[str, Any]:
         "speech_style",
     )
     return {key: profile[key] for key in keys if key in profile}
+
+
+def build_filler_repetition_stats(
+    public_timeline: List[Dict[str, Any]],
+    *,
+    speaker: str,
+    actor_content: Dict[str, Any],
+    recent_speaker_turns: int = 5,
+) -> Dict[str, Any]:
+    """Summarize Guard-classified filler history without hard-coding families."""
+
+    speaker_events = [
+        event
+        for event in public_timeline
+        if isinstance(event, dict) and event.get("speaker") == speaker
+    ]
+    recent_events = speaker_events[-recent_speaker_turns:]
+
+    return {
+        "speaker": speaker,
+        "window_speaker_turns": recent_speaker_turns,
+        "current_utterance": actor_content.get("public_utterance", ""),
+        "classification_owner": "actor_guard_llm",
+        "recent_speaker_fillers": [_timeline_filler_history_item(event) for event in recent_events],
+        "rule_of_thumb": (
+            "same speaker: 2 consecutive uses is usually acceptable, "
+            "3 should be checked, 4+ or 4/5 recent speaker turns should usually fail"
+        ),
+    }
+
+
+def _timeline_filler_history_item(event: Dict[str, Any]) -> Dict[str, Any]:
+    filler = event.get("filler_analysis") if isinstance(event, dict) else None
+    if not isinstance(filler, dict):
+        filler = {}
+
+    return {
+        "turn": event.get("turn"),
+        "utterance": event.get("utterance", ""),
+        "leading_filler_text": filler.get("current_leading_filler_text", ""),
+        "leading_filler_family": filler.get("current_leading_filler_family", ""),
+    }
 
 
 def call_actor_guard(
@@ -1009,6 +1110,11 @@ def call_actor_guard(
         "controller_directive_for_speaker": turn_control.get("directive_for_next_speaker", {}),
         "scene_state": turn_control.get("scene_state"),
         "public_timeline_before_turn": public_timeline,
+        "filler_repetition_stats": build_filler_repetition_stats(
+            public_timeline,
+            speaker=speaker,
+            actor_content=actor_content,
+        ),
         "actor_output": actor_content,
     }
 
@@ -1030,7 +1136,7 @@ def call_actor_guard(
             top_p=1.0 if thinking_enabled is False else None,
         )
     except ValueError as e:
-        if thinking_enabled and "empty tool_call arguments" in str(e):
+        if thinking_enabled and should_retry_tool_without_thinking(e):
             args, reasoning, usage, raw = call_deepseek_tool(
                 client,
                 model=model,

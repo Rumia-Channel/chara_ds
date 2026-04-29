@@ -45,6 +45,7 @@ def make_public_timeline_event(
     turn_index: int,
     speaker: str,
     actor_content: Dict[str, Any],
+    actor_guard_content: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     physical_action = actor_content.get("physical_action")
 
@@ -54,12 +55,15 @@ def make_public_timeline_event(
     if isinstance(physical_action, str) and physical_action.strip():
         visible_action = physical_action.strip()
 
-    return {
+    event = {
         "turn": turn_index,
         "speaker": speaker,
         "utterance": actor_content.get("public_utterance", ""),
         "visible_action": visible_action,
     }
+    if isinstance(actor_guard_content, dict) and isinstance(actor_guard_content.get("filler_analysis"), dict):
+        event["filler_analysis"] = actor_guard_content["filler_analysis"]
+    return event
 
 
 def latest_scene_state(turns: List[Dict[str, Any]]) -> Optional[str]:
@@ -751,7 +755,12 @@ def generate_one_conversation(
                 retry_base_sleep=retry_base_sleep,
             )
 
-            public_event = make_public_timeline_event(turn_index, speaker, actor_content)
+            public_event = make_public_timeline_event(
+                turn_index,
+                speaker,
+                actor_content,
+                guard_content if actor_guard_enabled else None,
+            )
             public_timeline.append(public_event)
 
             turn_record = {
