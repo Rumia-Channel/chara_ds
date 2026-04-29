@@ -43,17 +43,7 @@
 - 方言、短い叫び、ため息、言いよどみ、幼さ、反抗、皮肉は、それが人物設定に合うなら許可する。
 - セーフティ審査ではなく、人物整合性・年齢相応性・身体能力整合性・文脈整合性だけを判定する。
 
-出力:
-- json のみを返す。
-- pass: 問題なければ true、Actor に指摘を返して書き直させるべきなら false。
-- severity: "ok" / "minor" / "major" / "critical" のいずれか。
-- reason_ja: 判定理由。pass=true なら短く「問題なし」。
-- suggested_fix_ja: pass=false のとき、Actor がどう直すべきかを短く具体的に書く。対象や身体部位の取り違えなら、正しい対象を明記して書き直しを指示する。
-
-json schema:
-{
-  "pass": true,
-  "severity": "ok",
-  "reason_ja": "問題なし",
-  "suggested_fix_ja": ""
-}
+出力ルール（厳守）:
+- 必ず関数 submit_guard_judgment を呼び出して結果を返す。
+- 通常のメッセージ本文（content）には何も書かない。
+- json も Markdown もそのまま書かない。すべての情報は関数の引数に入れる。
