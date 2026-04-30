@@ -145,12 +145,31 @@ def make_client(base_url: str) -> OpenAI:
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
+def make_env_client(*, api_key_env: str, base_url: str) -> OpenAI:
+    api_key = os.environ.get(api_key_env)
+    if not api_key:
+        raise RuntimeError(f"{api_key_env} is not set")
+
+    return OpenAI(api_key=api_key, base_url=base_url)
+
+
 def get_thread_client(base_url: str) -> OpenAI:
     client = getattr(THREAD_LOCAL, "client", None)
 
     if client is None:
         client = make_client(base_url)
         THREAD_LOCAL.client = client
+
+    return client
+
+
+def get_thread_env_client(*, name: str, api_key_env: str, base_url: str) -> OpenAI:
+    attr = f"client_{name}"
+    client = getattr(THREAD_LOCAL, attr, None)
+
+    if client is None:
+        client = make_env_client(api_key_env=api_key_env, base_url=base_url)
+        setattr(THREAD_LOCAL, attr, client)
 
     return client
 

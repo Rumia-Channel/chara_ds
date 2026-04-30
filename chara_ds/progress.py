@@ -73,9 +73,11 @@ PROGRESS_STATE: Dict[str, Any] = {
     "latest_public_timeline": [],
     "latest_public_timeline_id": None,
     "last_persona": None,
+    "last_grand_controller": None,
     "last_controller": None,
     "last_actor": None,
     "last_actor_guard": None,
+    "last_conversation_audit": None,
     "events": [],
     "errors": [],
     "control": {
@@ -134,12 +136,15 @@ def _history_from_turns(
     persona_content: Optional[Dict[str, Any]],
     turns: Optional[List[Dict[str, Any]]],
     now: str,
+    conversation_audit: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     history: Dict[str, List[Dict[str, Any]]] = {
         "persona": [],
+        "grand_controller": [],
         "controller": [],
         "actor": [],
         "actor_guard": [],
+        "conversation_audit": [],
     }
     if persona_content is not None:
         history["persona"].append(
@@ -154,6 +159,17 @@ def _history_from_turns(
             continue
         turn_index = turn.get("turn")
         controller = turn.get("controller") if isinstance(turn.get("controller"), dict) else {}
+        grand = controller.get("grand_controller") if isinstance(controller, dict) else None
+        grand_content = grand.get("content") if isinstance(grand, dict) else None
+        if grand_content is not None:
+            history["grand_controller"].append(
+                {
+                    "time": now,
+                    "stage": "resumed_grand_controller",
+                    "turn_index": turn_index,
+                    "content": progress_safe(grand_content, max_string=12000, max_list=160),
+                }
+            )
         controller_content = controller.get("content") if isinstance(controller, dict) else None
         if controller_content is not None:
             tc = controller_content.get("turn_control") if isinstance(controller_content, dict) else {}
@@ -190,6 +206,14 @@ def _history_from_turns(
                     "content": progress_safe(guard_content, max_string=12000, max_list=160),
                 }
             )
+    if conversation_audit is not None:
+        history["conversation_audit"].append(
+            {
+                "time": now,
+                "stage": "resumed_conversation_audit",
+                "content": progress_safe(conversation_audit, max_string=12000, max_list=160),
+            }
+        )
     return history
 
 
@@ -341,10 +365,13 @@ def progress_update(
     latest_public_timeline: Optional[List[Dict[str, Any]]] = None,
     history_persona: Optional[Dict[str, Any]] = None,
     history_turns: Optional[List[Dict[str, Any]]] = None,
+    history_conversation_audit: Optional[Dict[str, Any]] = None,
     last_persona: Optional[Dict[str, Any]] = None,
+    last_grand_controller: Optional[Dict[str, Any]] = None,
     last_controller: Optional[Dict[str, Any]] = None,
     last_actor: Optional[Dict[str, Any]] = None,
     last_actor_guard: Optional[Dict[str, Any]] = None,
+    last_conversation_audit: Optional[Dict[str, Any]] = None,
     clear_last_actor_guard: bool = False,
     error: Optional[Dict[str, Any]] = None,
     event: Optional[Dict[str, Any]] = None,
@@ -383,26 +410,42 @@ def progress_update(
                     new_slot["public_timeline"] = progress_safe(latest_public_timeline)
                 elif prev_timeline is not None and current is not None:
                     new_slot["public_timeline"] = prev_timeline
-                if history_turns is not None or history_persona is not None:
-                    new_slot["agent_history"] = _history_from_turns(history_persona, history_turns, now)
+                if (
+                    history_turns is not None
+                    or history_persona is not None
+                    or history_conversation_audit is not None
+                ):
+                    new_slot["agent_history"] = _history_from_turns(
+                        history_persona,
+                        history_turns,
+                        now,
+                        history_conversation_audit,
+                    )
                 if last_persona is not None:
                     _append_agent_history(new_slot, "persona", last_persona, current, now)
+                if last_grand_controller is not None:
+                    _append_agent_history(new_slot, "grand_controller", last_grand_controller, current, now)
                 if last_controller is not None:
                     _append_agent_history(new_slot, "controller", last_controller, current, now)
                 if last_actor is not None:
                     _append_agent_history(new_slot, "actor", last_actor, current, now)
                 if last_actor_guard is not None:
                     _append_agent_history(new_slot, "actor_guard", last_actor_guard, current, now)
+                if last_conversation_audit is not None:
+                    _append_agent_history(new_slot, "conversation_audit", last_conversation_audit, current, now)
                 new_slot["updated_at"] = now
                 if (
                     current is not None
                     or latest_public_timeline is not None
                     or history_turns is not None
                     or history_persona is not None
+                    or history_conversation_audit is not None
                     or last_persona is not None
+                    or last_grand_controller is not None
                     or last_controller is not None
                     or last_actor is not None
                     or last_actor_guard is not None
+                    or last_conversation_audit is not None
                 ):
                     PROGRESS_STATE["active"][conversation_id] = new_slot
 
@@ -414,6 +457,9 @@ def progress_update(
         if last_persona is not None:
             PROGRESS_STATE["last_persona"] = progress_safe(last_persona)
 
+        if last_grand_controller is not None:
+            PROGRESS_STATE["last_grand_controller"] = progress_safe(last_grand_controller)
+
         if last_controller is not None:
             PROGRESS_STATE["last_controller"] = progress_safe(last_controller)
 
@@ -424,6 +470,9 @@ def progress_update(
             PROGRESS_STATE["last_actor_guard"] = progress_safe(last_actor_guard)
         elif clear_last_actor_guard:
             PROGRESS_STATE["last_actor_guard"] = None
+
+        if last_conversation_audit is not None:
+            PROGRESS_STATE["last_conversation_audit"] = progress_safe(last_conversation_audit)
 
         if error is not None:
             PROGRESS_STATE["errors"].append(progress_safe(error))

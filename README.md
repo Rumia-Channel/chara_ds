@@ -33,6 +33,8 @@ DeepSeek API では以下を利用します。
 - `--thinking off` は Persona / Turn Controller / Actor の thinking をすべて無効にします。
 - `--thinking default` は従来の既定値です。Persona / Actor は有効、Turn Controller は無効です。
 - `--actor-guard` を付けると、各Actor出力後に第三者視点の監視を挟みます。既定は `--actor-guard-model deepseek-v4-pro --actor-guard-thinking off` です。
+- `--sakura-guard` を付けると ActorGuard だけを SAKURA AI Engine に切り替えます。`SAKURA_API_KEY` を環境変数に設定し、既定では `https://api.ai.sakura.ad.jp/v1` の `gpt-oss-120b` を使います。
+- `--conversation-audit` を付けると、生成完了後に会話全体を横断監査し、`conversation_audit` を出力に保存します。`--conversation-audit-provider sakura` で SAKURA 側の視点から監査できます。
 - `--persona-max-tokens` / `--controller-max-tokens` / `--actor-max-tokens` / `--actor-guard-max-tokens` / `--situation-max-tokens` は既定で DeepSeek V4 の最大出力 384K に合わせています。`0` を指定すると `max_tokens` を省略します。
 
 ## 入力ファイル
@@ -321,6 +323,8 @@ Model and thinking mode can be switched from the CLI:
 - `--thinking off` disables thinking for Persona, Turn Controller, and Actor calls.
 - `--thinking default` keeps the legacy defaults: Persona / Actor on, Turn Controller off.
 - `--actor-guard` adds a third-person judge after each Actor turn. By default it uses `--actor-guard-model deepseek-v4-pro --actor-guard-thinking off`.
+- `--sakura-guard` switches only ActorGuard to SAKURA AI Engine. Set `SAKURA_API_KEY`; the default endpoint is `https://api.ai.sakura.ad.jp/v1` and the default model is `gpt-oss-120b`.
+- `--conversation-audit` runs a full-conversation audit after generation and stores `conversation_audit`. Use `--conversation-audit-provider sakura` for a SAKURA-side audit perspective.
 - `--persona-max-tokens` / `--controller-max-tokens` / `--actor-max-tokens` / `--actor-guard-max-tokens` / `--situation-max-tokens` default to DeepSeek V4 max output, 384K. Set `0` to omit `max_tokens`.
 
 ## Generating base situations
@@ -377,9 +381,11 @@ format.txt
 gen_situations.py
 prompts/
   persona_controller.txt
+  grand_controller.txt
   turn_controller.txt
   actor.txt
   actor_guard.txt
+  conversation_auditor.txt
   situation_gen.txt
 ```
 

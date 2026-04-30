@@ -11,7 +11,14 @@ from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
-from .agents import call_actor, call_actor_guard, call_persona_controller, call_turn_controller
+from .agents import (
+    call_actor,
+    call_actor_guard,
+    call_conversation_auditor,
+    call_grand_controller,
+    call_persona_controller,
+    call_turn_controller,
+)
 from .api_client import call_with_retries
 from .config import DATASET_NAME, PersonaLine, PromptBundle, SCHEMA_VERSION
 from .io_utils import now_iso, sha256_json, sha256_text
@@ -178,7 +185,13 @@ def generate_one_conversation(
     actor_thinking_enabled: bool,
     actor_guard_enabled: bool,
     actor_guard_model: str,
+    actor_guard_provider: str,
+    actor_guard_client: Optional[OpenAI],
     actor_guard_thinking_enabled: bool,
+    conversation_audit_enabled: bool,
+    conversation_audit_model: str,
+    conversation_audit_provider: str,
+    conversation_audit_client: Optional[OpenAI],
     controller_temperature: float,
     controller_top_p: float,
     persona_max_tokens: Optional[int],
@@ -260,7 +273,11 @@ def generate_one_conversation(
             "actor_thinking_enabled": actor_thinking_enabled,
             "actor_guard_enabled": actor_guard_enabled,
             "actor_guard_model": actor_guard_model,
+            "actor_guard_provider": actor_guard_provider,
             "actor_guard_thinking_enabled": actor_guard_thinking_enabled,
+            "conversation_audit_enabled": conversation_audit_enabled,
+            "conversation_audit_model": conversation_audit_model,
+            "conversation_audit_provider": conversation_audit_provider,
             "controller_temperature": controller_temperature,
             "controller_top_p": controller_top_p,
             "persona_max_tokens": persona_max_tokens,
@@ -271,9 +288,11 @@ def generate_one_conversation(
             "persona_line_number": persona_line.line_number,
             "prompts": {
                 "persona_controller_sha256": sha256_text(prompts.persona_controller),
+                "grand_controller_sha256": sha256_text(prompts.grand_controller),
                 "turn_controller_sha256": sha256_text(prompts.turn_controller),
                 "actor_sha256": sha256_text(prompts.actor),
                 "actor_guard_sha256": sha256_text(prompts.actor_guard),
+                "conversation_auditor_sha256": sha256_text(prompts.conversation_auditor),
                 "age_gender_norms_sha256": prompts.age_gender_norms_sha256,
             },
         }
@@ -371,6 +390,9 @@ def generate_one_conversation(
             latest_public_timeline=public_timeline,
             history_persona=persona_content,
             history_turns=turns,
+            history_conversation_audit=existing_record.get("conversation_audit")
+            if isinstance(existing_record.get("conversation_audit"), dict)
+            else None,
             event={
                 "type": "resuming_existing_record",
                 "conversation_id": conversation_id,
@@ -484,6 +506,7 @@ def generate_one_conversation(
             "turn_controller": [],
             "actors": [],
             "actor_guard": [],
+            "conversation_audit": [],
         }
         start_turn = 1
         early_end = False
@@ -516,6 +539,44 @@ def generate_one_conversation(
     if not early_end:
         for turn_index in range(start_turn, target_turns + 1):
             progress_update(
+                status="grand_controller_running",
+                conversation_id=conversation_id,
+                current={
+                    "stage": "grand_controller",
+                    "conversation_id": conversation_id,
+                    "turn_index": turn_index,
+                    "target_turns": target_turns,
+                },
+                latest_public_timeline=public_timeline,
+            )
+
+            grand_content, grand_reasoning, grand_usage, grand_raw = call_with_retries(
+                lambda: call_grand_controller(
+                    client,
+                    prompts=prompts,
+                    model=model,
+                    conversation_id=conversation_id,
+                    persona_seed=persona_seed,
+                    public_timeline=public_timeline,
+                    previous_scene_state=previous_scene_state,
+                    previous_state_memory=previous_state_memory,
+                    turn_index=turn_index,
+                    target_turns=target_turns,
+                    reasoning_effort=reasoning_effort,
+                    max_tokens=controller_max_tokens,
+                    thinking_enabled=turn_controller_thinking_enabled,
+                ),
+                retries=retries,
+                errors_out=errors_out,
+                error_context={
+                    "stage": "grand_controller",
+                    "conversation_id": conversation_id,
+                    "turn_index": turn_index,
+                },
+                retry_base_sleep=retry_base_sleep,
+            )
+
+            progress_update(
                 status="turn_controller_running",
                 conversation_id=conversation_id,
                 current={
@@ -537,6 +598,7 @@ def generate_one_conversation(
                     public_timeline=public_timeline,
                     previous_scene_state=previous_scene_state,
                     previous_state_memory=previous_state_memory,
+                    grand_strategy=grand_content,
                     state_memory_tool_enabled=state_memory_tool_enabled,
                     turn_index=turn_index,
                     target_turns=target_turns,
@@ -580,6 +642,7 @@ def generate_one_conversation(
                     "speaker": speaker,
                 },
                 latest_public_timeline=public_timeline,
+                last_grand_controller=grand_content,
                 last_controller=controller_content,
             )
 
@@ -641,8 +704,9 @@ def generate_one_conversation(
                             "guard_round": guard_round,
                         },
                     )
+                    guard_client = actor_guard_client if actor_guard_provider == "sakura" else client
                     guard_content, guard_reasoning, guard_usage, guard_raw = call_actor_guard(
-                        client,
+                        guard_client,
                         prompts=prompts,
                         model=actor_guard_model,
                         speaker=speaker,
@@ -654,7 +718,10 @@ def generate_one_conversation(
                         turn_index=turn_index,
                         reasoning_effort=reasoning_effort,
                         max_tokens=actor_guard_max_tokens,
-                        thinking_enabled=actor_guard_thinking_enabled,
+                        thinking_enabled=actor_guard_thinking_enabled
+                        if actor_guard_provider == "deepseek"
+                        else None,
+                        tool_strict=actor_guard_provider == "deepseek",
                     )
                     last_guard = (guard_content, guard_reasoning, guard_usage, guard_raw)
                     guard_attempts.append(
@@ -766,6 +833,12 @@ def generate_one_conversation(
             turn_record = {
                 "turn": turn_index,
                 "controller": {
+                    "grand_controller": {
+                        "content": grand_content,
+                        "reasoning_content": grand_reasoning,
+                        "usage": grand_usage,
+                        "thinking_enabled": turn_controller_thinking_enabled,
+                    },
                     "content": controller_content,
                     "reasoning_content": controller_reasoning,
                     "usage": controller_usage,
@@ -787,15 +860,19 @@ def generate_one_conversation(
                     "usage": guard_usage,
                     "thinking_enabled": actor_guard_thinking_enabled,
                     "model": actor_guard_model,
+                    "provider": actor_guard_provider,
                 }
 
             if keep_raw_content:
+                turn_record["controller"]["grand_controller"]["raw_content"] = grand_raw
                 turn_record["controller"]["raw_content"] = controller_raw
                 turn_record["actor"]["raw_content"] = actor_raw
                 if actor_guard_enabled:
                     turn_record["actor_guard"]["raw_content"] = guard_raw
 
             turns.append(turn_record)
+            if grand_usage:
+                usage_summary.setdefault("grand_controller", []).append(grand_usage)
             usage_summary["turn_controller"].append(controller_usage)
             usage_summary["actors"].append(actor_usage)
             if actor_guard_enabled:
@@ -893,6 +970,18 @@ def generate_one_conversation(
                     "reasoning_effort": reasoning_effort if turn_controller_thinking_enabled else None,
                 },
             },
+            "grand_controller": {
+                "provider": "deepseek",
+                "model": model if prompts.grand_controller.strip() else None,
+                "role": "grand_controller",
+                "enabled": bool(prompts.grand_controller.strip()),
+                "thinking": {
+                    "enabled": turn_controller_thinking_enabled if prompts.grand_controller.strip() else False,
+                    "reasoning_effort": reasoning_effort
+                    if prompts.grand_controller.strip() and turn_controller_thinking_enabled
+                    else None,
+                },
+            },
             "actor_A": {
                 "provider": "deepseek",
                 "model": model,
@@ -924,6 +1013,10 @@ def generate_one_conversation(
             "python_quality_filtering": True,
             "actor_guard_enabled": actor_guard_enabled,
             "actor_guard_model": actor_guard_model if actor_guard_enabled else None,
+            "actor_guard_provider": actor_guard_provider if actor_guard_enabled else None,
+            "conversation_audit_enabled": conversation_audit_enabled,
+            "conversation_audit_model": conversation_audit_model if conversation_audit_enabled else None,
+            "conversation_audit_provider": conversation_audit_provider if conversation_audit_enabled else None,
             "max_tokens_policy": {
                 "persona_max_tokens": persona_max_tokens,
                 "controller_max_tokens": controller_max_tokens,
@@ -934,9 +1027,11 @@ def generate_one_conversation(
         },
         "prompt_hashes": {
             "persona_controller_sha256": sha256_text(prompts.persona_controller),
+            "grand_controller_sha256": sha256_text(prompts.grand_controller),
             "turn_controller_sha256": sha256_text(prompts.turn_controller),
             "actor_sha256": sha256_text(prompts.actor),
             "actor_guard_sha256": sha256_text(prompts.actor_guard),
+            "conversation_auditor_sha256": sha256_text(prompts.conversation_auditor),
             "age_gender_norms_sha256": prompts.age_gender_norms_sha256,
         },
         "persona_generation": {
@@ -968,7 +1063,7 @@ def generate_one_conversation(
 
     if actor_guard_enabled:
         record["agents"]["actor_guard"] = {
-            "provider": "deepseek",
+            "provider": actor_guard_provider,
             "model": actor_guard_model,
             "role": "actor_consistency_guard",
             "thinking": {
@@ -976,6 +1071,86 @@ def generate_one_conversation(
                 "reasoning_effort": reasoning_effort if actor_guard_thinking_enabled else None,
             },
         }
+
+    if conversation_audit_enabled:
+        audit_client = conversation_audit_client if conversation_audit_provider == "sakura" else client
+        progress_update(
+            status="conversation_audit_running",
+            conversation_id=conversation_id,
+            current={
+                "stage": "conversation_audit",
+                "conversation_id": conversation_id,
+                "actual_turns": len(public_timeline),
+            },
+            latest_public_timeline=public_timeline,
+            event={
+                "type": "conversation_audit_running",
+                "conversation_id": conversation_id,
+            },
+        )
+        audit_content, audit_reasoning, audit_usage, audit_raw = call_with_retries(
+            lambda: call_conversation_auditor(
+                audit_client,
+                prompts=prompts,
+                model=conversation_audit_model,
+                conversation_id=conversation_id,
+                persona_seed=persona_seed,
+                turns=turns,
+                public_timeline=public_timeline,
+                reasoning_effort=reasoning_effort,
+                max_tokens=actor_guard_max_tokens,
+                thinking_enabled=actor_guard_thinking_enabled
+                if conversation_audit_provider == "deepseek"
+                else None,
+                tool_strict=conversation_audit_provider == "deepseek",
+            ),
+            retries=retries,
+            errors_out=errors_out,
+            error_context={
+                "stage": "conversation_audit",
+                "conversation_id": conversation_id,
+            },
+            retry_base_sleep=retry_base_sleep,
+        )
+        record["conversation_audit"] = {
+            "provider": conversation_audit_provider,
+            "model": conversation_audit_model,
+            "content": audit_content,
+            "reasoning_content": audit_reasoning,
+            "usage": audit_usage,
+        }
+        usage_summary.setdefault("conversation_audit", []).append(audit_usage)
+        if keep_raw_content:
+            record["conversation_audit"]["raw_content"] = audit_raw
+        record["agents"]["conversation_auditor"] = {
+            "provider": conversation_audit_provider,
+            "model": conversation_audit_model,
+            "role": "finished_conversation_auditor",
+            "thinking": {
+                "enabled": actor_guard_thinking_enabled if conversation_audit_provider == "deepseek" else False,
+                "reasoning_effort": reasoning_effort
+                if conversation_audit_provider == "deepseek" and actor_guard_thinking_enabled
+                else None,
+            },
+        }
+        progress_update(
+            status="conversation_audit_done",
+            conversation_id=conversation_id,
+            current={
+                "stage": "conversation_audit_done",
+                "conversation_id": conversation_id,
+                "actual_turns": len(public_timeline),
+            },
+            latest_public_timeline=public_timeline,
+            last_conversation_audit=record["conversation_audit"],
+            event={
+                "type": "conversation_audit_done",
+                "conversation_id": conversation_id,
+                "overall_score": audit_content.get("overall_score"),
+                "pass": audit_content.get("pass"),
+                "recommended_action": audit_content.get("recommended_action"),
+            },
+        )
 
     progress_update(
         status="conversation_done",

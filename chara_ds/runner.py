@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from tqdm import tqdm
 
-from .api_client import get_thread_client
+from .api_client import get_thread_client, get_thread_env_client
 from .config import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL,
@@ -26,6 +26,8 @@ from .config import (
     PRO_MODEL,
     PersonaLine,
     PromptBundle,
+    SAKURA_DEFAULT_BASE_URL,
+    SAKURA_GUARD_MODEL,
 )
 from .conversation import estimate_ending_pacing_floor, generate_one_conversation
 from .io_utils import (
@@ -265,7 +267,11 @@ def backfill_short_records_to_cache(
                 "actor_thinking_enabled": actor_thinking_enabled,
                 "actor_guard_enabled": actor_guard_enabled,
                 "actor_guard_model": args.actor_guard_model,
+                "actor_guard_provider": args.actor_guard_provider,
                 "actor_guard_thinking_enabled": actor_guard_thinking_enabled,
+                "conversation_audit_enabled": args.conversation_audit,
+                "conversation_audit_model": args.conversation_audit_model,
+                "conversation_audit_provider": args.conversation_audit_provider,
                 "controller_temperature": args.controller_temperature,
                 "controller_top_p": args.controller_top_p,
                 "persona_max_tokens": args.persona_max_tokens,
@@ -276,9 +282,11 @@ def backfill_short_records_to_cache(
                 "persona_line_number": line_number,
                 "prompts": {
                     "persona_controller_sha256": sha256_text(prompts.persona_controller),
+                    "grand_controller_sha256": sha256_text(prompts.grand_controller),
                     "turn_controller_sha256": sha256_text(prompts.turn_controller),
                     "actor_sha256": sha256_text(prompts.actor),
                     "actor_guard_sha256": sha256_text(prompts.actor_guard),
+                    "conversation_auditor_sha256": sha256_text(prompts.conversation_auditor),
                     "age_gender_norms_sha256": prompts.age_gender_norms_sha256,
                 },
             }
@@ -362,6 +370,16 @@ def expand_id_args(values: Optional[List[str]]) -> List[str]:
     return out
 
 
+def get_optional_sakura_client(args: argparse.Namespace):
+    if not (args.sakura_guard or args.conversation_audit_provider == "sakura"):
+        return None
+    return get_thread_env_client(
+        name="sakura",
+        api_key_env="SAKURA_API_KEY",
+        base_url=args.sakura_base_url,
+    )
+
+
 def run_one_conversation_task(
     *,
     idx0: int,
@@ -398,6 +416,7 @@ def run_one_conversation_task(
     )
 
     client = get_thread_client(args.base_url)
+    sakura_client = get_optional_sakura_client(args)
 
     try:
         record = generate_one_conversation(
@@ -419,7 +438,13 @@ def run_one_conversation_task(
             actor_thinking_enabled=actor_thinking_enabled,
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
+            actor_guard_provider=args.actor_guard_provider,
+            actor_guard_client=sakura_client if args.actor_guard_provider == "sakura" else None,
             actor_guard_thinking_enabled=actor_guard_thinking_enabled,
+            conversation_audit_enabled=args.conversation_audit,
+            conversation_audit_model=args.conversation_audit_model,
+            conversation_audit_provider=args.conversation_audit_provider,
+            conversation_audit_client=sakura_client if args.conversation_audit_provider == "sakura" else None,
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=args.persona_max_tokens,
@@ -513,6 +538,7 @@ def rewrite_one_conversation_task(
     else:
         persona_line = persona_line_from_record(record, args.persona_txt)
     client = get_thread_client(args.base_url)
+    sakura_client = get_optional_sakura_client(args)
 
     try:
         if cache_dir and args.delete_turn_cache_on_success:
@@ -536,7 +562,13 @@ def rewrite_one_conversation_task(
             actor_thinking_enabled=actor_thinking_enabled,
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
+            actor_guard_provider=args.actor_guard_provider,
+            actor_guard_client=sakura_client if args.actor_guard_provider == "sakura" else None,
             actor_guard_thinking_enabled=actor_guard_thinking_enabled,
+            conversation_audit_enabled=args.conversation_audit,
+            conversation_audit_model=args.conversation_audit_model,
+            conversation_audit_provider=args.conversation_audit_provider,
+            conversation_audit_client=sakura_client if args.conversation_audit_provider == "sakura" else None,
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=args.persona_max_tokens,
@@ -620,6 +652,7 @@ def finish_one_conversation_task(
 
     persona_line = persona_line_from_record(record, args.persona_txt)
     client = get_thread_client(args.base_url)
+    sakura_client = get_optional_sakura_client(args)
 
     try:
         extended = generate_one_conversation(
@@ -641,7 +674,13 @@ def finish_one_conversation_task(
             actor_thinking_enabled=actor_thinking_enabled,
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
+            actor_guard_provider=args.actor_guard_provider,
+            actor_guard_client=sakura_client if args.actor_guard_provider == "sakura" else None,
             actor_guard_thinking_enabled=actor_guard_thinking_enabled,
+            conversation_audit_enabled=args.conversation_audit,
+            conversation_audit_model=args.conversation_audit_model,
+            conversation_audit_provider=args.conversation_audit_provider,
+            conversation_audit_client=sakura_client if args.conversation_audit_provider == "sakura" else None,
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=args.persona_max_tokens,
@@ -816,6 +855,25 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--actor-guard-model", default=PRO_MODEL)
     parser.add_argument(
+        "--sakura-guard",
+        action="store_true",
+        help="Use SAKURA AI Engine for ActorGuard. Requires SAKURA_API_KEY.",
+    )
+    parser.add_argument("--sakura-base-url", default=SAKURA_DEFAULT_BASE_URL)
+    parser.add_argument("--sakura-guard-model", default=SAKURA_GUARD_MODEL)
+    parser.add_argument(
+        "--conversation-audit",
+        action="store_true",
+        help="After generation, audit the full conversation and store conversation_audit in the record.",
+    )
+    parser.add_argument(
+        "--conversation-audit-provider",
+        choices=["deepseek", "sakura"],
+        default="deepseek",
+        help="Provider for --conversation-audit. sakura requires SAKURA_API_KEY.",
+    )
+    parser.add_argument("--conversation-audit-model", default=None)
+    parser.add_argument(
         "--actor-guard-thinking",
         choices=["default", "on", "off"],
         default="off",
@@ -974,6 +1032,19 @@ def main() -> None:
     if args.model is None:
         args.model = FLASH_MODEL if args.flash else DEFAULT_MODEL
 
+    if args.sakura_base_url.rstrip("/").endswith("/chat/completions"):
+        args.sakura_base_url = args.sakura_base_url.rstrip("/")[: -len("/chat/completions")]
+
+    args.actor_guard_provider = "sakura" if args.sakura_guard else "deepseek"
+    if args.sakura_guard:
+        args.actor_guard_model = args.sakura_guard_model
+    if args.conversation_audit_model is None:
+        args.conversation_audit_model = (
+            args.sakura_guard_model
+            if args.conversation_audit_provider == "sakura"
+            else args.actor_guard_model
+        )
+
     if args.flash and args.model != FLASH_MODEL:
         raise ValueError("--flash cannot be combined with --model other than deepseek-v4-flash")
 
@@ -1008,6 +1079,10 @@ def main() -> None:
     if args.actor_guard and not prompts.actor_guard.strip():
         raise FileNotFoundError(
             f"--actor-guard requires {os.path.join(args.prompt_dir, 'actor_guard.txt')}"
+        )
+    if args.conversation_audit and not prompts.conversation_auditor.strip():
+        raise FileNotFoundError(
+            f"--conversation-audit requires {os.path.join(args.prompt_dir, 'conversation_auditor.txt')}"
         )
 
     initial_pool = len(persona_lines)
@@ -1790,6 +1865,12 @@ def main() -> None:
         "state_memory_tool_enabled": not args.disable_state_memory_tool,
         "resume_accept_stale_cache": args.resume_accept_stale_cache,
         "actor_thinking_enabled": actor_thinking_enabled,
+        "actor_guard_enabled": args.actor_guard,
+        "actor_guard_provider": args.actor_guard_provider if args.actor_guard else None,
+        "actor_guard_model": args.actor_guard_model if args.actor_guard else None,
+        "conversation_audit_enabled": args.conversation_audit,
+        "conversation_audit_provider": args.conversation_audit_provider if args.conversation_audit else None,
+        "conversation_audit_model": args.conversation_audit_model if args.conversation_audit else None,
         "reasoning_effort": args.reasoning_effort,
         "python_quality_filtering": False,
         "resume_backfilled": len(resume_backfilled_done_indices),
@@ -1797,12 +1878,16 @@ def main() -> None:
             "persona_max_tokens": args.persona_max_tokens,
             "controller_max_tokens": args.controller_max_tokens,
             "actor_max_tokens": args.actor_max_tokens,
+            "actor_guard_max_tokens": args.actor_guard_max_tokens,
             "zero_means_omitted": True,
         },
         "prompt_hashes": {
             "persona_controller_sha256": sha256_text(prompts.persona_controller),
+            "grand_controller_sha256": sha256_text(prompts.grand_controller),
             "turn_controller_sha256": sha256_text(prompts.turn_controller),
             "actor_sha256": sha256_text(prompts.actor),
+            "actor_guard_sha256": sha256_text(prompts.actor_guard),
+            "conversation_auditor_sha256": sha256_text(prompts.conversation_auditor),
             "age_gender_norms_sha256": prompts.age_gender_norms_sha256,
         },
     }

@@ -367,6 +367,89 @@ ACTOR_GUARD_TOOL_PARAMETERS: Dict[str, Any] = {
 }
 
 
+CONVERSATION_AUDITOR_TOOL_NAME = "submit_conversation_audit"
+CONVERSATION_AUDITOR_TOOL_DESCRIPTION = (
+    "完成した会話全体を第三者校閲者として監査し、不自然さ・矛盾・反復・"
+    "年齢性別らしさ・大局 drift を採点して提出する。"
+)
+CONVERSATION_AUDITOR_TOOL_PARAMETERS: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "overall_score": {"type": "integer", "description": "0-100。高いほど自然で一貫している。"},
+        "pass": {"type": "boolean"},
+        "summary_ja": {"type": "string"},
+        "critical_issues": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "turn_issues": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "turn": {"type": "integer"},
+                    "speaker": {"type": "string"},
+                    "category": {
+                        "type": "string",
+                        "enum": [
+                            "contradiction",
+                            "age_gender_voice",
+                            "addressing",
+                            "filler_repetition",
+                            "topic_stagnation",
+                            "common_sense",
+                            "pacing",
+                            "grand_strategy_drift",
+                            "implicit_knowledge",
+                            "other",
+                        ],
+                    },
+                    "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "reason_ja": {"type": "string"},
+                    "suggested_fix_ja": {"type": "string"},
+                },
+                "required": ["turn", "speaker", "category", "severity", "reason_ja", "suggested_fix_ja"],
+                "additionalProperties": False,
+            },
+        },
+        "dimension_scores": {
+            "type": "object",
+            "properties": {
+                "continuity": {"type": "integer"},
+                "age_gender_voice": {"type": "integer"},
+                "dialogue_naturalness": {"type": "integer"},
+                "pacing": {"type": "integer"},
+                "repetition_control": {"type": "integer"},
+                "common_sense": {"type": "integer"},
+            },
+            "required": [
+                "continuity",
+                "age_gender_voice",
+                "dialogue_naturalness",
+                "pacing",
+                "repetition_control",
+                "common_sense",
+            ],
+            "additionalProperties": False,
+        },
+        "recommended_action": {
+            "type": "string",
+            "enum": ["accept", "accept_with_minor_issues", "rewrite_selected_turns", "regenerate_conversation"],
+        },
+    },
+    "required": [
+        "overall_score",
+        "pass",
+        "summary_ja",
+        "critical_issues",
+        "turn_issues",
+        "dimension_scores",
+        "recommended_action",
+    ],
+    "additionalProperties": False,
+}
+
+
 # JSON Schema for the actor tool. Intentionally flat: every field is a free-text
 # string. We rely on the API-enforced `tools` contract to guarantee that the
 # fields are always present, instead of begging the model to follow a marker
@@ -419,6 +502,101 @@ TURN_CONTROLLER_TOOL_DESCRIPTION = (
     "次ターンの制御情報と、長期会話・長期戦闘用の状態メモリを提出する。"
     "発話本文は書かず、Actor に渡す方針だけを返す。"
 )
+
+
+GRAND_CONTROLLER_TOOL_NAME = "submit_grand_strategy"
+GRAND_CONTROLLER_TOOL_DESCRIPTION = (
+    "Persona と長期履歴から、大局的な心理/肉体の優勢推移と攻防バランスを管理する。"
+    "発話本文は書かず、Turn Controller へ渡す大局方針だけを返す。"
+)
+GRAND_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "psychological_advantage": {
+            "type": "object",
+            "properties": {
+                "holder": {"type": "string", "enum": ["A", "B", "balanced", "unclear"]},
+                "degree": {"type": "string", "enum": ["low", "medium", "high", "swinging"]},
+                "reason": {"type": "string"},
+            },
+            "required": ["holder", "degree", "reason"],
+            "additionalProperties": False,
+        },
+        "physical_advantage": {
+            "type": "object",
+            "properties": {
+                "holder": {"type": "string", "enum": ["A", "B", "balanced", "unclear"]},
+                "degree": {"type": "string", "enum": ["low", "medium", "high", "swinging"]},
+                "reason": {"type": "string"},
+            },
+            "required": ["holder", "degree", "reason"],
+            "additionalProperties": False,
+        },
+        "momentum": {
+            "type": "object",
+            "properties": {
+                "current_flow": {
+                    "type": "string",
+                    "enum": [
+                        "A_pressing", "B_pressing", "back_and_forth",
+                        "resetting", "stalemate", "turning_point",
+                    ],
+                },
+                "should_shift_next": {"type": "boolean"},
+                "shift_target": {"type": "string", "enum": ["A", "B", "balanced", "none"]},
+                "reason": {"type": "string"},
+            },
+            "required": ["current_flow", "should_shift_next", "shift_target", "reason"],
+            "additionalProperties": False,
+        },
+        "balance_directive": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": [
+                        "preserve_back_and_forth", "allow_A_advantage",
+                        "allow_B_advantage", "force_recovery_for_A",
+                        "force_recovery_for_B", "slow_down_escalation",
+                        "advance_to_ending",
+                    ],
+                },
+                "next_turn_priority": {"type": "string"},
+                "forbidden_drift": {"type": "string"},
+                "allowed_swing": {"type": "string"},
+            },
+            "required": ["mode", "next_turn_priority", "forbidden_drift", "allowed_swing"],
+            "additionalProperties": False,
+        },
+        "pacing": {
+            "type": "object",
+            "properties": {
+                "phase": {
+                    "type": "string",
+                    "enum": ["opening", "build_up", "middle", "late", "climax", "resolution"],
+                },
+                "turns_remaining_estimate": {"type": "integer"},
+                "ending_progress": {"type": "string"},
+                "next_milestone": {"type": "string"},
+            },
+            "required": ["phase", "turns_remaining_estimate", "ending_progress", "next_milestone"],
+            "additionalProperties": False,
+        },
+        "turn_controller_instruction": {
+            "type": "string",
+            "description": "Turn Controller が次ターン制御に反映する大局指示。",
+        },
+    },
+    "required": [
+        "psychological_advantage",
+        "physical_advantage",
+        "momentum",
+        "balance_directive",
+        "pacing",
+        "turn_controller_instruction",
+    ],
+    "additionalProperties": False,
+}
 SUGGESTED_ACTIONS = [
     "greet",
     "ask_softly",
@@ -635,6 +813,23 @@ def validate_turn_control_output(obj: Dict[str, Any]) -> bool:
     return isinstance(tc.get("directive_for_next_speaker"), dict)
 
 
+def validate_grand_strategy_output(obj: Dict[str, Any]) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    required = (
+        "psychological_advantage",
+        "physical_advantage",
+        "momentum",
+        "balance_directive",
+        "pacing",
+        "turn_controller_instruction",
+    )
+    for key in required:
+        if key not in obj:
+            return False
+    return isinstance(obj.get("turn_controller_instruction"), str)
+
+
 def normalize_turn_control_output(obj: Dict[str, Any]) -> Dict[str, Any]:
     """Accept a few common model shape slips and return canonical structure."""
     if not isinstance(obj, dict):
@@ -676,6 +871,24 @@ def validate_actor_guard_output(obj: Dict[str, Any]) -> bool:
     return isinstance(obj.get("filler_analysis"), dict)
 
 
+def validate_conversation_audit_output(obj: Dict[str, Any]) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    if not isinstance(obj.get("overall_score"), int):
+        return False
+    if not isinstance(obj.get("pass"), bool):
+        return False
+    if not isinstance(obj.get("summary_ja"), str):
+        return False
+    if not isinstance(obj.get("critical_issues"), list):
+        return False
+    if not isinstance(obj.get("turn_issues"), list):
+        return False
+    if not isinstance(obj.get("dimension_scores"), dict):
+        return False
+    return isinstance(obj.get("recommended_action"), str)
+
+
 def call_persona_controller(
     client: OpenAI,
     *,
@@ -689,7 +902,7 @@ def call_persona_controller(
     target_turns: int,
     reasoning_effort: str,
     max_tokens: Optional[int],
-    thinking_enabled: bool,
+    thinking_enabled: Optional[bool],
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     static_context = {
         "task": "create_persona_seed_from_user_txt_line",
@@ -769,6 +982,7 @@ def call_turn_controller(
     public_timeline: List[Dict[str, Any]],
     previous_scene_state: Optional[str],
     previous_state_memory: Optional[Dict[str, Any]],
+    grand_strategy: Optional[Dict[str, Any]],
     state_memory_tool_enabled: bool,
     turn_index: int,
     target_turns: int,
@@ -799,6 +1013,7 @@ def call_turn_controller(
         "turn_index": turn_index,
         "previous_scene_state": previous_scene_state,
         "previous_state_memory": previous_state_memory,
+        "grand_strategy": grand_strategy or {},
         "public_timeline": public_timeline,
     }
 
@@ -886,6 +1101,88 @@ def call_turn_controller(
         )
 
     return parsed, reasoning, usage, raw
+
+
+def call_grand_controller(
+    client: OpenAI,
+    *,
+    prompts: PromptBundle,
+    model: str,
+    conversation_id: str,
+    persona_seed: Dict[str, Any],
+    public_timeline: List[Dict[str, Any]],
+    previous_scene_state: Optional[str],
+    previous_state_memory: Optional[Dict[str, Any]],
+    turn_index: int,
+    target_turns: int,
+    reasoning_effort: str,
+    max_tokens: Optional[int],
+    thinking_enabled: Optional[bool],
+) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
+    if not prompts.grand_controller.strip():
+        return {}, None, {}, ""
+
+    static_context = {
+        "task": "create_grand_strategy_for_turn_controller",
+        "conversation_id": conversation_id,
+        "persona_seed": persona_seed,
+        "target_turns": target_turns,
+        "instruction": (
+            f"関数 {GRAND_CONTROLLER_TOOL_NAME} を呼び出して、Turn Controller 用の大局方針を提出する。"
+            "発話本文は書かない。"
+        ),
+    }
+    payload = {
+        "turn_index": turn_index,
+        "turns_remaining": max(target_turns - turn_index + 1, 0),
+        "previous_scene_state": previous_scene_state,
+        "previous_state_memory": previous_state_memory,
+        "public_timeline": public_timeline,
+    }
+
+    try:
+        args, reasoning, usage, raw = call_deepseek_tool(
+            client,
+            model=model,
+            system_prompt=prompts.grand_controller,
+            user_payload=payload,
+            static_context=static_context,
+            tool_name=GRAND_CONTROLLER_TOOL_NAME,
+            tool_description=GRAND_CONTROLLER_TOOL_DESCRIPTION,
+            tool_parameters=GRAND_CONTROLLER_TOOL_PARAMETERS,
+            tool_strict=True,
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort,
+            thinking_enabled=thinking_enabled,
+            temperature=0.0 if thinking_enabled is False else None,
+            top_p=1.0 if thinking_enabled is False else None,
+        )
+    except ValueError as e:
+        if thinking_enabled and should_retry_tool_without_thinking(e):
+            args, reasoning, usage, raw = call_deepseek_tool(
+                client,
+                model=model,
+                system_prompt=prompts.grand_controller,
+                user_payload=payload,
+                static_context=static_context,
+                tool_name=GRAND_CONTROLLER_TOOL_NAME,
+                tool_description=GRAND_CONTROLLER_TOOL_DESCRIPTION,
+                tool_parameters=GRAND_CONTROLLER_TOOL_PARAMETERS,
+                tool_strict=True,
+                max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
+                thinking_enabled=False,
+                temperature=0.0,
+                top_p=1.0,
+            )
+        else:
+            raise
+
+    if not validate_grand_strategy_output(args):
+        snippet = (raw or "")[:400].replace("\n", "\\n")
+        raise ValueError(f"invalid grand controller output (raw_head={snippet!r})")
+
+    return args, reasoning, usage, raw
 
 
 def call_actor(
@@ -1076,6 +1373,7 @@ def call_actor_guard(
     reasoning_effort: str,
     max_tokens: Optional[int],
     thinking_enabled: bool,
+    tool_strict: bool = True,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     static_context = {
         "task": "judge_actor_turn_consistency",
@@ -1128,7 +1426,7 @@ def call_actor_guard(
             tool_name=ACTOR_GUARD_TOOL_NAME,
             tool_description=ACTOR_GUARD_TOOL_DESCRIPTION,
             tool_parameters=ACTOR_GUARD_TOOL_PARAMETERS,
-            tool_strict=True,
+            tool_strict=tool_strict,
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
             thinking_enabled=thinking_enabled,
@@ -1146,7 +1444,7 @@ def call_actor_guard(
                 tool_name=ACTOR_GUARD_TOOL_NAME,
                 tool_description=ACTOR_GUARD_TOOL_DESCRIPTION,
                 tool_parameters=ACTOR_GUARD_TOOL_PARAMETERS,
-                tool_strict=True,
+                tool_strict=tool_strict,
                 max_tokens=max_tokens,
                 reasoning_effort=reasoning_effort,
                 thinking_enabled=False,
@@ -1160,6 +1458,72 @@ def call_actor_guard(
         snippet = (raw or "")[:200].replace("\n", "\\n")
         raise ValueError(
             "invalid actor guard output "
+            f"(keys={sorted(args.keys()) if isinstance(args, dict) else type(args).__name__}, "
+            f"raw_head={snippet!r})"
+        )
+
+    return args, reasoning, usage, raw
+
+
+def call_conversation_auditor(
+    client: OpenAI,
+    *,
+    prompts: PromptBundle,
+    model: str,
+    conversation_id: str,
+    persona_seed: Dict[str, Any],
+    turns: List[Dict[str, Any]],
+    public_timeline: List[Dict[str, Any]],
+    reasoning_effort: str,
+    max_tokens: Optional[int],
+    thinking_enabled: bool,
+    tool_strict: bool = True,
+) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
+    if not prompts.conversation_auditor.strip():
+        raise ValueError("conversation_auditor prompt is empty")
+
+    payload = {
+        "conversation_id": conversation_id,
+        "persona_seed": persona_seed,
+        "public_timeline": public_timeline,
+        "turns_for_audit": [
+            {
+                "turn": turn.get("turn"),
+                "controller": turn.get("controller", {}),
+                "actor": turn.get("actor", {}),
+                "actor_guard": turn.get("actor_guard", {}),
+                "public_event": turn.get("public_event", {}),
+            }
+            for turn in turns
+            if isinstance(turn, dict)
+        ],
+    }
+    static_context = {
+        "task": "audit_finished_conversation",
+        "instruction": "完成済み会話を第三者校閲者として横断監査し、具体的な問題ターンだけを指摘する。",
+    }
+
+    args, reasoning, usage, raw = call_deepseek_tool(
+        client,
+        model=model,
+        system_prompt=prompts.conversation_auditor,
+        user_payload=payload,
+        static_context=static_context,
+        tool_name=CONVERSATION_AUDITOR_TOOL_NAME,
+        tool_description=CONVERSATION_AUDITOR_TOOL_DESCRIPTION,
+        tool_parameters=CONVERSATION_AUDITOR_TOOL_PARAMETERS,
+        tool_strict=tool_strict,
+        max_tokens=max_tokens,
+        reasoning_effort=reasoning_effort,
+        thinking_enabled=thinking_enabled,
+        temperature=0.0 if thinking_enabled is False else None,
+        top_p=1.0 if thinking_enabled is False else None,
+    )
+
+    if not validate_conversation_audit_output(args):
+        snippet = (raw or "")[:200].replace("\n", "\\n")
+        raise ValueError(
+            "invalid conversation audit output "
             f"(keys={sorted(args.keys()) if isinstance(args, dict) else type(args).__name__}, "
             f"raw_head={snippet!r})"
         )

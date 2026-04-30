@@ -129,6 +129,8 @@
 `turns` は、各会話ターンの完全な生成記録です。
 `actor_guard` は `--actor-guard` を指定した場合のみ含まれます。Guard が不合格を返した場合、その `reason_ja` と `suggested_fix_ja` は次の Actor 呼び出しに `actor_guard_feedback` として渡され、同じターンの書き直しに使われます。
 `actor_guard.content.filler_analysis` には、Actor Guard が判定した現在発話の先頭フィラー/口癖 family、同一話者での連続回数、直近発話内の反復回数、反復問題かどうかが入ります。この分類は Python の固定リストではなく Guard の判定結果として public timeline に保存され、次ターン以降の反復管理に使われます。
+`--sakura-guard` を指定した場合、`actor_guard.provider` と `agents.actor_guard.provider` は `sakura` になり、`SAKURA_API_KEY` と `--sakura-base-url` / `--sakura-guard-model` で SAKURA AI Engine に接続します。
+`--conversation-audit` を指定した場合、生成完了後に `conversation_audit` が追加されます。`content.overall_score`、`content.dimension_scores`、`content.turn_issues`、`content.recommended_action` に、会話全体の横断監査結果が入ります。
 
 各要素はおおむね以下の形です。
 
@@ -198,6 +200,7 @@
 補足:
 
 - `controller.content.turn_control` は、次の話者と会話の展開方針を決めます。
+- `controller.grand_controller.content` は、Turn Controller の直前に作られる大局方針です。心理的有利、肉体的有利、攻防の流れ、揺り戻しが必要か、終盤までのペース配分を保持し、Turn Controller の短期判断が一方的な展開へ drift しないようにします。
 - `controller.content.turn_control.scene_state` は、その時点の場面状態です。会話圧だけでなく、衣装、装備、小道具、家具、距離、手元にある/ない物などの連続性を含む場合があります。
 - `controller.content.turn_control.state_memory` は、長期会話・長期戦闘用の構造化メモです。人物状態、環境、小道具/武器、負傷/疲労、関係性、会話で決まったこと、直近数ターンの発話要点、各話者の約束/拒否、未回収の話題、確定事実、避けるべき矛盾を保持します。
 - `scene_state` は各ターンで更新されます。たとえば、ローブを椅子に掛けた、上着を脱いだ、武器を床に落とした、机を挟んで距離がある、などの状態が次ターン以降の行動制御に使われます。
@@ -256,7 +259,8 @@
 | `seed` | 生成シード。 |
 | `variation` | 元お題行に対するバリエーション番号。 |
 | `controller_temperature` / `controller_top_p` | thinking 無効時のターンコントローラーのサンプリング設定。 |
-| `actor_guard_enabled` / `actor_guard_model` | `--actor-guard` 使用時の第三者監視役設定。 |
+| `actor_guard_enabled` / `actor_guard_model` / `actor_guard_provider` | `--actor-guard` 使用時の第三者監視役設定。`--sakura-guard` 時は provider が `sakura`。 |
+| `conversation_audit_enabled` / `conversation_audit_model` / `conversation_audit_provider` | `--conversation-audit` 使用時の完成会話監査設定。 |
 | `max_tokens_policy` | ペルソナ、コントローラー、アクター、アクターガード呼び出しの最大トークン設定。既定は DeepSeek V4 最大出力の 384K で、`0` または `None` は API へ `max_tokens` を送らないことを意味します。 |
 
 `prompt_hashes.age_gender_norms_sha256` は、`prompt_dir/age_gender_norms/` がある場合はその JSON 群、なければ `prompt_dir/age_gender_norms.txt` の hash です。Persona Controller と Actor Guard には、全データではなく現在の入力・speaker に近い属性だけが `age_gender_norms_selected` として渡されます。年齢・性別・特殊属性ごとの一人称、二人称、喜び、悲しみ、照れ、困惑、痛み、制止、怒り語彙の基準に使われます。
@@ -457,6 +461,8 @@ Each character usually contains:
 `turns` contains the full generation trace for every dialogue turn.
 `actor_guard` is present only when `--actor-guard` is enabled. If the guard fails an output, its `reason_ja` and `suggested_fix_ja` are passed to the next Actor call as `actor_guard_feedback` for rewriting the same turn.
 `actor_guard.content.filler_analysis` stores the Actor Guard's classification of the current leading filler / verbal habit family, same-speaker consecutive count, recent repetition count, and whether it is a repetition problem. The family classification is produced by the Guard rather than a Python hard-coded list, then stored in the public timeline for later turns.
+With `--sakura-guard`, `actor_guard.provider` and `agents.actor_guard.provider` are `sakura`; the runner uses `SAKURA_API_KEY` plus `--sakura-base-url` / `--sakura-guard-model`.
+With `--conversation-audit`, the final record includes `conversation_audit`. `content.overall_score`, `content.dimension_scores`, `content.turn_issues`, and `content.recommended_action` contain the full-conversation audit result.
 
 Each element has approximately this shape:
 
@@ -526,6 +532,7 @@ Each element has approximately this shape:
 Notes:
 
 - `controller.content.turn_control` decides the next speaker and dramatic direction.
+- `controller.grand_controller.content` is the grand strategy generated immediately before Turn Controller. It tracks psychological advantage, physical advantage, momentum, whether a swing-back is needed, and pacing toward the ending so short-term turn control does not drift into an unintended one-sided progression.
 - `controller.content.turn_control.scene_state` is the current scene state. It may include continuity for clothing, equipment, props, furniture, distance, and items that are or are not currently at hand.
 - `controller.content.turn_control.state_memory` is structured memory for long conversations and long fights. It tracks participant status, environment, props/weapons, injuries/fatigue, relationship state, conversation decisions, recent dialogue facts, speaker commitments, open threads, established facts, and contradictions to avoid.
 - `scene_state` is updated every turn. For example, a robe hanging on a chair, a jacket being removed, a weapon falling to the floor, or a desk separating the characters can constrain later physical actions.
@@ -584,7 +591,8 @@ Important fields:
 | `seed` | Generation seed. |
 | `variation` | Variation index for the source line. |
 | `controller_temperature` / `controller_top_p` | Turn controller sampling settings when thinking is disabled. |
-| `actor_guard_enabled` / `actor_guard_model` | Third-person actor guard settings when `--actor-guard` is used. |
+| `actor_guard_enabled` / `actor_guard_model` / `actor_guard_provider` | Third-person actor guard settings when `--actor-guard` is used. provider is `sakura` with `--sakura-guard`. |
+| `conversation_audit_enabled` / `conversation_audit_model` / `conversation_audit_provider` | Full-conversation audit settings when `--conversation-audit` is used. |
 | `max_tokens_policy` | Max-token settings for persona, controller, actor, and actor-guard calls. Defaults use DeepSeek V4 max output, 384K. `0` or `None` means `max_tokens` was omitted for that call. |
 
 `prompt_hashes.age_gender_norms_sha256` is the hash of `prompt_dir/age_gender_norms/` JSON files when present, otherwise `prompt_dir/age_gender_norms.txt`. Persona Controller and Actor Guard receive only the relevant selected snippets as `age_gender_norms_selected`, not the full dataset. The snippets guide first/second person choices, joy, sadness, embarrassment, confusion, pain reactions, refusals, anger vocabulary, and special archetypes.

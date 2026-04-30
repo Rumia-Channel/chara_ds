@@ -41,9 +41,11 @@ def load_prompts(prompt_dir: str) -> PromptBundle:
     legacy_norms = base / "age_gender_norms.txt"
     files = {
         "persona_controller": base / "persona_controller.txt",
+        "grand_controller": base / "grand_controller.txt",
         "turn_controller": base / "turn_controller.txt",
         "actor": base / "actor.txt",
         "actor_guard": base / "actor_guard.txt",
+        "conversation_auditor": base / "conversation_auditor.txt",
         "age_gender_norms": legacy_norms,
     }
 
@@ -56,10 +58,16 @@ def load_prompts(prompt_dir: str) -> PromptBundle:
     norm_index = load_norm_index(norm_dir)
     return PromptBundle(
         persona_controller=read_text(str(files["persona_controller"])).strip(),
+        grand_controller=read_text(str(files["grand_controller"])).strip()
+        if files["grand_controller"].exists()
+        else "",
         turn_controller=read_text(str(files["turn_controller"])).strip(),
         actor=read_text(str(files["actor"])).strip(),
         actor_guard=read_text(str(files["actor_guard"])).strip()
         if files["actor_guard"].exists()
+        else "",
+        conversation_auditor=read_text(str(files["conversation_auditor"])).strip()
+        if files["conversation_auditor"].exists()
         else "",
         age_gender_norms=legacy_norm_text,
         age_gender_norms_dir=str(norm_dir) if norm_dir.exists() else "",

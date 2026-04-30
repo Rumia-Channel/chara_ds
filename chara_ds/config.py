@@ -9,6 +9,8 @@ PRO_MODEL = "deepseek-v4-pro"
 FLASH_MODEL = "deepseek-v4-flash"
 DEFAULT_MODEL = PRO_MODEL
 DEEPSEEK_V4_MAX_OUTPUT_TOKENS = 384_000
+SAKURA_DEFAULT_BASE_URL = "https://api.ai.sakura.ad.jp/v1"
+SAKURA_GUARD_MODEL = "gpt-oss-120b"
 # Beta endpoint required for `strict: true` tool schemas (and other beta features).
 # The non-beta endpoint will reject `strict: true` with a 400.
 DEFAULT_BASE_URL = "https://api.deepseek.com/beta"
@@ -27,9 +29,11 @@ class PersonaLine:
 @dataclass
 class PromptBundle:
     persona_controller: str
+    grand_controller: str
     turn_controller: str
     actor: str
     actor_guard: str
+    conversation_auditor: str
     age_gender_norms: str
     age_gender_norms_dir: str
     age_gender_norms_index: dict

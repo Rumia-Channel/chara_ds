@@ -252,7 +252,16 @@ function fmtJSON(obj) {
 
 function agentKeyForTab(tab) {
   if (tab === "guard") return "actor_guard";
+  if (tab === "grand") return "grand_controller";
+  if (tab === "audit") return "conversation_audit";
   return tab;
+}
+
+function lastKeyForAgent(agent) {
+  if (agent === "actor_guard") return "last_actor_guard";
+  if (agent === "grand_controller") return "last_grand_controller";
+  if (agent === "conversation_audit") return "last_conversation_audit";
+  return "last_" + agent;
 }
 
 function collectConversationIdsWithHistory(state) {
@@ -329,10 +338,40 @@ function renderAgentPane(state, tab, paneId) {
   });
 
   if (rendered === 0) {
-    const d = document.createElement("div");
-    d.className = "empty";
-    d.textContent = "no " + tab + " history yet";
-    pane.appendChild(d);
+    const fallback = state[lastKeyForAgent(agent)];
+    if (fallback !== undefined && fallback !== null) {
+      const section = document.createElement("section");
+      section.className = "agent-conversation";
+
+      const head = document.createElement("div");
+      head.className = "agent-conversation-head";
+      const title = document.createElement("span");
+      title.className = "agent-cid";
+      title.textContent = "latest " + tab;
+      const count = document.createElement("span");
+      count.className = "agent-count";
+      count.textContent = "fallback";
+      head.appendChild(title);
+      head.appendChild(count);
+      section.appendChild(head);
+
+      const d = document.createElement("details");
+      d.className = "agent-entry latest";
+      d.open = true;
+      const summary = document.createElement("summary");
+      summary.textContent = "latest global " + tab;
+      d.appendChild(summary);
+      const pre = document.createElement("pre");
+      pre.textContent = fmtJSON(fallback);
+      d.appendChild(pre);
+      section.appendChild(d);
+      pane.appendChild(section);
+    } else {
+      const d = document.createElement("div");
+      d.className = "empty";
+      d.textContent = "no " + tab + " history yet";
+      pane.appendChild(d);
+    }
   }
 }
 
@@ -576,6 +615,8 @@ function renderTimeline(state) {
 function renderDetail(state) {
   renderAgentPane(state, "actor", "pane-actor");
   renderAgentPane(state, "guard", "pane-guard");
+  renderAgentPane(state, "audit", "pane-audit");
+  renderAgentPane(state, "grand", "pane-grand");
   renderAgentPane(state, "controller", "pane-controller");
   renderAgentPane(state, "persona", "pane-persona");
 
@@ -784,6 +825,43 @@ async function openCompleted(cid) {
       renderTimelineMessages(items, tlBox);
     } else {
       tlBox.innerHTML = "<div class='empty'>no public_timeline in record</div>";
+    }
+
+    const guardTurns = Array.isArray(rec.turns)
+      ? rec.turns.filter((turn) => turn && turn.actor_guard)
+      : [];
+    if (guardTurns.length) {
+      const guardBox = document.createElement("details");
+      guardBox.className = "cc-dump";
+      const sm = document.createElement("summary");
+      sm.textContent = "actor guards · " + guardTurns.length + " turns";
+      guardBox.appendChild(sm);
+      const pre = document.createElement("pre");
+      pre.textContent = fmtJSON(guardTurns.map((turn) => ({
+        turn: turn.turn,
+        speaker: turn.actor && turn.actor.speaker,
+        provider: turn.actor_guard.provider,
+        model: turn.actor_guard.model,
+        content: turn.actor_guard.content,
+      })));
+      guardBox.appendChild(pre);
+      detail.appendChild(guardBox);
+    }
+
+    if (rec.conversation_audit) {
+      const audit = document.createElement("details");
+      audit.className = "cc-dump";
+      audit.open = true;
+      const sm = document.createElement("summary");
+      const content = rec.conversation_audit.content || {};
+      const score = content.overall_score !== undefined ? `score ${content.overall_score}` : "audit";
+      const action = content.recommended_action ? ` · ${content.recommended_action}` : "";
+      sm.textContent = "conversation audit · " + score + action;
+      audit.appendChild(sm);
+      const pre = document.createElement("pre");
+      pre.textContent = fmtJSON(rec.conversation_audit);
+      audit.appendChild(pre);
+      detail.appendChild(audit);
     }
 
     const dump = document.createElement("details");
