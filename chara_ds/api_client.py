@@ -1,4 +1,9 @@
-"""DeepSeek API client wrappers and retry logic."""
+"""OpenAI-compatible API client wrappers and retry logic.
+
+DeepSeek remains the primary provider port because it has provider-specific
+thinking controls and beta strict-tool behavior. Other OpenAI-compatible
+servers use the common Chat Completions surface with stricter tool forcing.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ import os
 import threading
 import time
 import traceback
+from urllib.parse import urlparse
 from typing import Any, Dict, Optional, Tuple
 
 from openai import BadRequestError, OpenAI
@@ -110,8 +116,52 @@ def _parse_tool_arguments_or_raise(
         finish_reason=finish_reason,
         usage=usage,
     )
-    _validate_json_schema_subset(parsed, tool_parameters)
+    try:
+        _validate_json_schema_subset(parsed, tool_parameters)
+    except ValueError:
+        coerced = _coerce_single_required_tool_argument(parsed, tool_parameters)
+        if coerced is parsed:
+            raise
+        _validate_json_schema_subset(coerced, tool_parameters)
+        return coerced
     return parsed
+
+
+def _coerce_single_required_tool_argument(
+    parsed: Dict[str, Any],
+    tool_parameters: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Wrap bare inner-object tool arguments returned by weaker tool callers.
+
+    Some OpenAI-compatible local servers/models emit the object intended for a
+    single required top-level argument directly. For example, a schema requiring
+    ``{"persona_seed": {...}}`` may receive just ``{...}``. This keeps the
+    strict local validation while accepting that common wrapper omission.
+    """
+
+    if not isinstance(parsed, dict):
+        return parsed
+    if tool_parameters.get("type") != "object":
+        return parsed
+
+    required = tool_parameters.get("required") or []
+    properties = tool_parameters.get("properties") or {}
+    if len(required) != 1:
+        return parsed
+
+    key = required[0]
+    if key in parsed or key not in properties:
+        return parsed
+
+    child_schema = properties.get(key)
+    if not isinstance(child_schema, dict) or child_schema.get("type") != "object":
+        return parsed
+
+    child_required = child_schema.get("required") or []
+    if child_required and not any(child_key in parsed for child_key in child_required):
+        return parsed
+
+    return {key: parsed}
 
 
 def _parse_json_or_raise(
@@ -137,20 +187,171 @@ def _parse_json_or_raise(
         ) from e
 
 
+def _normalize_openai_base_url(base_url: str) -> str:
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/chat/completions"):
+        normalized = normalized[: -len("/chat/completions")]
+    return normalized
+
+
+def _is_local_openai_compat_url(base_url: str) -> bool:
+    if os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE") in {"llama_cpp", "local_json"}:
+        return True
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "").lower()
+    return host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def _is_local_openai_compat_client(client: OpenAI) -> bool:
+    return _is_local_openai_compat_url(str(getattr(client, "base_url", "")))
+
+
+def _provider_port_for_url(base_url: str) -> str:
+    """Classify provider behavior while keeping the public client generic."""
+
+    override = os.environ.get("CHARA_DS_PROVIDER_PORT", "").strip().lower()
+    if override:
+        return override
+
+    if _is_local_openai_compat_url(base_url):
+        mode = os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE", "").strip().lower()
+        return mode or "local_openai_compat"
+
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "").lower()
+    if host.endswith("deepseek.com"):
+        return "deepseek"
+    if host.endswith("openai.com"):
+        return "openai"
+    return "openai_compat"
+
+
+def _provider_port_for_client(client: OpenAI) -> str:
+    return _provider_port_for_url(str(getattr(client, "base_url", "")))
+
+
+def _is_deepseek_client(client: OpenAI) -> bool:
+    return _provider_port_for_client(client) == "deepseek"
+
+
+def _use_plain_json_tools() -> bool:
+    return os.environ.get("CHARA_DS_TOOL_MODE") == "plain_json"
+
+
+def _supports_strict_tools(client: OpenAI) -> bool:
+    if os.environ.get("CHARA_DS_TOOL_STRICT") == "1":
+        return True
+    if os.environ.get("CHARA_DS_TOOL_STRICT") == "0":
+        return False
+    return not _is_local_openai_compat_client(client)
+
+
+def _force_tool_choice_candidates(client: OpenAI, tool_name: str) -> list[Any]:
+    """Return tool_choice values to try, ordered by provider preference."""
+
+    override = os.environ.get("CHARA_DS_TOOL_CHOICE", "").strip().lower()
+    if override == "auto":
+        return ["auto"]
+    if override == "required":
+        return ["required"]
+    if override == "forced":
+        return [{"type": "function", "function": {"name": tool_name}}, "required"]
+
+    if _is_deepseek_client(client):
+        # DeepSeek reasoner has historically rejected specific function forcing.
+        # Keep the DeepSeek port permissive and rely on strict tools + fallback.
+        return ["auto"]
+
+    # llama.cpp and several OpenAI-compatible servers only accept the string
+    # form. Because we send exactly one tool, "required" still forces the target
+    # function without relying on provider-specific object support.
+    return ["required"]
+
+
+def _allow_tool_content_fallback(client: OpenAI) -> bool:
+    """Whether a non-tool message body may be parsed as tool arguments."""
+
+    override = os.environ.get("CHARA_DS_TOOL_CONTENT_FALLBACK", "").strip().lower()
+    if override in {"1", "true", "yes", "on"}:
+        return True
+    if override in {"0", "false", "no", "off"}:
+        return False
+
+    # DeepSeek's thinking/tool behavior can put useful structured output into
+    # content or reasoning. For generic OpenAI-compatible providers, accepting
+    # content hides broken tool calling, so fail loudly instead.
+    return _is_deepseek_client(client)
+
+
+def _extract_named_tool_arguments(message: Any, tool_name: str) -> tuple[str, int]:
+    tool_calls = getattr(message, "tool_calls", None) or []
+    for tc in tool_calls:
+        fn = getattr(tc, "function", None)
+        if fn is None:
+            continue
+        name = getattr(fn, "name", None)
+        args = getattr(fn, "arguments", None) or ""
+        if name == tool_name and args.strip():
+            return args, len(tool_calls)
+    return "", len(tool_calls)
+
+
 def make_client(base_url: str) -> OpenAI:
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    base_url = _normalize_openai_base_url(base_url)
+    api_key = (
+        os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("LLAMA_CPP_API_KEY")
+    )
+    if not api_key and _is_local_openai_compat_url(base_url):
+        api_key = "sk-no-key-required"
     if not api_key:
-        raise RuntimeError("DEEPSEEK_API_KEY is not set")
+        raise RuntimeError("DEEPSEEK_API_KEY, OPENAI_API_KEY, or LLAMA_CPP_API_KEY is not set")
 
     return OpenAI(api_key=api_key, base_url=base_url)
 
 
 def make_env_client(*, api_key_env: str, base_url: str) -> OpenAI:
+    base_url = _normalize_openai_base_url(base_url)
     api_key = os.environ.get(api_key_env)
     if not api_key:
         raise RuntimeError(f"{api_key_env} is not set")
 
     return OpenAI(api_key=api_key, base_url=base_url)
+
+
+def _apply_chat_controls(
+    kwargs: Dict[str, Any],
+    *,
+    client: OpenAI,
+    thinking_enabled: Optional[bool],
+    reasoning_effort: str,
+    temperature: Optional[float],
+    top_p: Optional[float],
+) -> None:
+    """Attach provider-specific generation controls.
+
+    DeepSeek beta understands ``extra_body.thinking`` and ``reasoning_effort``.
+    Local OpenAI-compatible servers such as llama.cpp generally do not, so for
+    those endpoints we omit the DeepSeek-only fields and keep only standard
+    sampling parameters. Tool calls are still sent through the OpenAI ``tools``
+    field unless plain-json fallback mode is explicitly enabled.
+    """
+
+    supports_deepseek_extras = not _is_local_openai_compat_client(client)
+
+    if thinking_enabled and supports_deepseek_extras:
+        kwargs["reasoning_effort"] = reasoning_effort
+        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+        return
+
+    if thinking_enabled is False and supports_deepseek_extras:
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    if top_p is not None:
+        kwargs["top_p"] = top_p
 
 
 def get_thread_client(base_url: str) -> OpenAI:
@@ -296,28 +497,14 @@ def call_deepseek_json(
     if max_tokens is not None and max_tokens > 0:
         kwargs["max_tokens"] = max_tokens
 
-    if thinking_enabled:
-        kwargs["reasoning_effort"] = reasoning_effort
-        kwargs["extra_body"] = {
-            "thinking": {
-                "type": "enabled",
-            }
-        }
-    elif thinking_enabled is False:
-        kwargs["extra_body"] = {
-            "thinking": {
-                "type": "disabled",
-            }
-        }
-        if temperature is not None:
-            kwargs["temperature"] = temperature
-        if top_p is not None:
-            kwargs["top_p"] = top_p
-    else:
-        if temperature is not None:
-            kwargs["temperature"] = temperature
-        if top_p is not None:
-            kwargs["top_p"] = top_p
+    _apply_chat_controls(
+        kwargs,
+        client=client,
+        thinking_enabled=thinking_enabled,
+        reasoning_effort=reasoning_effort,
+        temperature=temperature,
+        top_p=top_p,
+    )
 
     try:
         response = client.chat.completions.create(**kwargs)
@@ -399,20 +586,14 @@ def call_deepseek_text(
     if max_tokens is not None and max_tokens > 0:
         kwargs["max_tokens"] = max_tokens
 
-    if thinking_enabled:
-        kwargs["reasoning_effort"] = reasoning_effort
-        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
-    elif thinking_enabled is False:
-        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
-        if temperature is not None:
-            kwargs["temperature"] = temperature
-        if top_p is not None:
-            kwargs["top_p"] = top_p
-    else:
-        if temperature is not None:
-            kwargs["temperature"] = temperature
-        if top_p is not None:
-            kwargs["top_p"] = top_p
+    _apply_chat_controls(
+        kwargs,
+        client=client,
+        thinking_enabled=thinking_enabled,
+        reasoning_effort=reasoning_effort,
+        temperature=temperature,
+        top_p=top_p,
+    )
 
     try:
         response = client.chat.completions.create(**kwargs)
@@ -446,6 +627,30 @@ def call_deepseek_text(
     return raw_content, reasoning_content, usage, raw_content
 
 
+def _tool_json_system_prompt(
+    *,
+    system_prompt: str,
+    tool_name: str,
+    tool_description: str,
+    tool_parameters: Dict[str, Any],
+) -> str:
+    return (
+        system_prompt
+        + "\n\n# Structured output contract\n"
+        + "The server may not support OpenAI tool calls. In that case, return ONLY "
+        + "one valid JSON object matching the function arguments schema below. "
+        + "Do not wrap it in markdown and do not add commentary.\n"
+        + json.dumps(
+            {
+                "function_name": tool_name,
+                "description": tool_description,
+                "arguments_json_schema": tool_parameters,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+
 def call_deepseek_tool(
     client: OpenAI,
     *,
@@ -467,12 +672,71 @@ def call_deepseek_tool(
 
     Returns (parsed_arguments, reasoning_content, usage, raw_arguments_json).
 
-    With ``tool_strict=True`` (and the beta base_url), DeepSeek validates the
-    JSON Schema **server-side** when the model emits a tool call, so format
-    violations are eliminated at the API level. Combined with KV cache via
-    ``static_context``, this is the cheapest reliable way to force structured
-    output for high-volume generation.
+    DeepSeek uses its provider-specific port for thinking controls and beta
+    strict-tool validation. Other OpenAI-compatible providers are asked for one
+    specific function call via ``tool_choice`` so message-body JSON is not an
+    escape hatch.
     """
+    use_plain_json = _use_plain_json_tools()
+    if use_plain_json:
+        messages = _build_messages(
+            _tool_json_system_prompt(
+                system_prompt=system_prompt,
+                tool_name=tool_name,
+                tool_description=tool_description,
+                tool_parameters=tool_parameters,
+            ),
+            user_payload,
+            static_context,
+        )
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+        }
+        if max_tokens is not None and max_tokens > 0:
+            kwargs["max_tokens"] = max_tokens
+        _apply_chat_controls(
+            kwargs,
+            client=client,
+            thinking_enabled=thinking_enabled,
+            reasoning_effort=reasoning_effort,
+            temperature=temperature,
+            top_p=top_p,
+        )
+        response = client.chat.completions.create(**kwargs)
+
+        choice = response.choices[0]
+        msg = choice.message
+        raw_content = msg.content or ""
+        reasoning_content = get_reasoning_content(msg)
+        usage = usage_to_dict(getattr(response, "usage", None))
+        finish_reason = getattr(choice, "finish_reason", None)
+
+        if raw_content.strip():
+            parsed = _parse_tool_arguments_or_raise(
+                text=raw_content,
+                source="message.content",
+                reasoning_content=reasoning_content,
+                finish_reason=finish_reason,
+                usage=usage,
+                tool_parameters=tool_parameters,
+            )
+            return parsed, reasoning_content, usage, raw_content
+        if reasoning_content and reasoning_content.strip():
+            parsed = _parse_tool_arguments_or_raise(
+                text=reasoning_content,
+                source="reasoning_content",
+                reasoning_content=reasoning_content,
+                finish_reason=finish_reason,
+                usage=usage,
+                tool_parameters=tool_parameters,
+            )
+            return parsed, reasoning_content, usage, reasoning_content
+        raise ValueError(
+            "empty structured JSON content "
+            f"(finish_reason={finish_reason!r}, usage={usage})"
+        )
+
     messages = _build_messages(system_prompt, user_payload, static_context)
 
     function_def: Dict[str, Any] = {
@@ -480,74 +744,95 @@ def call_deepseek_tool(
         "description": tool_description,
         "parameters": tool_parameters,
     }
-    if tool_strict:
+    if tool_strict and _supports_strict_tools(client):
         # Beta-only feature: server-side JSON Schema enforcement on tool args.
         # Requires base_url=https://api.deepseek.com/beta.
         function_def["strict"] = True
 
     tools = [{"type": "function", "function": function_def}]
 
-    kwargs: Dict[str, Any] = {
+    kwargs_base: Dict[str, Any] = {
         "model": model,
         "messages": messages,
         "tools": tools,
-        # NOTE: deepseek-reasoner (thinking mode) は
-        # tool_choice={"type":"function","function":{"name":...}} の specific
-        # tool 強制をサポートしていない (BadRequest になる)。"auto" に統一し、
-        # プロンプトと content/reasoning フォールバックで実質的に強制する。
-        "tool_choice": "auto",
     }
+    if not _is_deepseek_client(client):
+        kwargs_base["parallel_tool_calls"] = False
 
     if max_tokens is not None and max_tokens > 0:
-        kwargs["max_tokens"] = max_tokens
+        kwargs_base["max_tokens"] = max_tokens
 
-    if thinking_enabled:
-        kwargs["reasoning_effort"] = reasoning_effort
-        kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
-    elif thinking_enabled is False:
-        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
-        if temperature is not None:
-            kwargs["temperature"] = temperature
-        if top_p is not None:
-            kwargs["top_p"] = top_p
-    else:
-        if temperature is not None:
-            kwargs["temperature"] = temperature
-        if top_p is not None:
-            kwargs["top_p"] = top_p
+    _apply_chat_controls(
+        kwargs_base,
+        client=client,
+        thinking_enabled=thinking_enabled,
+        reasoning_effort=reasoning_effort,
+        temperature=temperature,
+        top_p=top_p,
+    )
 
-    try:
-        response = client.chat.completions.create(**kwargs)
-    except TypeError:
-        kwargs.pop("reasoning_effort", None)
-        extra_body = kwargs.get("extra_body") or {}
-        if thinking_enabled:
-            extra_body["reasoning_effort"] = reasoning_effort
-        kwargs["extra_body"] = extra_body
-        response = client.chat.completions.create(**kwargs)
-
-    choice = response.choices[0]
-    msg = choice.message
-    reasoning_content = get_reasoning_content(msg)
-    usage = usage_to_dict(getattr(response, "usage", None))
-    finish_reason = getattr(choice, "finish_reason", None)
-
-    tool_calls = getattr(msg, "tool_calls", None) or []
+    last_bad_request: Optional[BadRequestError] = None
+    response = None
+    msg = None
+    reasoning_content = None
+    usage: Dict[str, Any] = {}
+    finish_reason = None
     raw_args = ""
-
-    for tc in tool_calls:
-        fn = getattr(tc, "function", None)
-        if fn is None:
+    tool_calls_count = 0
+    tool_choice_attempted: Any = None
+    tool_choice_candidates = _force_tool_choice_candidates(client, tool_name)
+    allow_content_fallback = _allow_tool_content_fallback(client)
+    for index, tool_choice in enumerate(tool_choice_candidates):
+        kwargs = dict(kwargs_base)
+        kwargs["tool_choice"] = tool_choice
+        tool_choice_attempted = tool_choice
+        try:
+            response = client.chat.completions.create(**kwargs)
+        except TypeError:
+            kwargs.pop("reasoning_effort", None)
+            extra_body = kwargs.get("extra_body") or {}
+            if thinking_enabled:
+                extra_body["reasoning_effort"] = reasoning_effort
+            kwargs["extra_body"] = extra_body
+            response = client.chat.completions.create(**kwargs)
+        except BadRequestError as e:
+            last_bad_request = e
             continue
-        name = getattr(fn, "name", None)
-        args = getattr(fn, "arguments", None) or ""
-        if name == tool_name and args.strip():
-            raw_args = args
+
+        choice = response.choices[0]
+        msg = choice.message
+        reasoning_content = get_reasoning_content(msg)
+        usage = usage_to_dict(getattr(response, "usage", None))
+        finish_reason = getattr(choice, "finish_reason", None)
+        raw_args, tool_calls_count = _extract_named_tool_arguments(msg, tool_name)
+        if raw_args or allow_content_fallback or index == len(tool_choice_candidates) - 1:
             break
 
-    # Fallback: if the model emitted plain content / put the JSON into reasoning,
-    # try to recover. Same defensive fallback we use for json/text variants.
+    if response is None:
+        if last_bad_request is not None:
+            raise last_bad_request
+        raise ValueError("tool call request was not attempted")
+    if msg is None:
+        raise ValueError("tool call response did not contain a message")
+
+    # Provider fallback: DeepSeek can sometimes place structured output in
+    # content/reasoning. Generic OpenAI-compatible providers should have been
+    # forced into tool_calls, so do not silently parse message content there.
     if not raw_args:
+        if not _allow_tool_content_fallback(client):
+            body_len = len((msg.content or "").strip())
+            raise ValueError(
+                "missing forced tool_call arguments "
+                f"(provider={_provider_port_for_client(client)!r}, "
+                f"tool_choice={tool_choice_attempted!r}, "
+                f"finish_reason={finish_reason!r}, "
+                f"tool_calls={tool_calls_count}, "
+                f"content_len={body_len}, "
+                f"has_reasoning={reasoning_content is not None}, "
+                f"reasoning_len={len(reasoning_content) if reasoning_content else 0}, "
+                f"usage={usage})"
+            )
+
         body = (msg.content or "").strip()
         if body:
             parsed = _parse_tool_arguments_or_raise(
@@ -573,7 +858,7 @@ def call_deepseek_tool(
         raise ValueError(
             "empty tool_call arguments "
             f"(finish_reason={finish_reason!r}, "
-            f"tool_calls={len(tool_calls)}, "
+            f"tool_calls={tool_calls_count}, "
             f"has_reasoning={reasoning_content is not None}, "
             f"reasoning_len={len(reasoning_content) if reasoning_content else 0}, "
             f"usage={usage})"

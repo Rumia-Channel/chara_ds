@@ -23,6 +23,8 @@ from .config import (
     DEFAULT_MODEL,
     DEEPSEEK_V4_MAX_OUTPUT_TOKENS,
     FLASH_MODEL,
+    LLAMA_CPP_DEFAULT_BASE_URL,
+    LLAMA_CPP_DEFAULT_MODEL,
     PRO_MODEL,
     PersonaLine,
     PromptBundle,
@@ -742,6 +744,24 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--model", default=None)
     parser.add_argument(
+        "--llama-cpp",
+        action="store_true",
+        help=(
+            "Shortcut for a local llama.cpp OpenAI-compatible server. "
+            f"Defaults to --base-url {LLAMA_CPP_DEFAULT_BASE_URL}, "
+            f"--model {LLAMA_CPP_DEFAULT_MODEL}, --thinking off, and omits max_tokens."
+        ),
+    )
+    parser.add_argument(
+        "--plain-json-tools",
+        action="store_true",
+        help=(
+            "Do not send OpenAI tools. Instead, ask the model to return one JSON "
+            "object matching the tool schema and validate it locally. Use as a "
+            "fallback for servers/models with broken tool-call support."
+        ),
+    )
+    parser.add_argument(
         "--flash",
         action="store_true",
         help=(
@@ -1028,6 +1048,29 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+
+    if args.llama_cpp:
+        os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "llama_cpp"
+        if args.base_url == DEFAULT_BASE_URL:
+            args.base_url = LLAMA_CPP_DEFAULT_BASE_URL
+        if args.model is None:
+            args.model = LLAMA_CPP_DEFAULT_MODEL
+        if args.thinking == "default":
+            args.thinking = "off"
+        if args.persona_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+            args.persona_max_tokens = 0
+        if args.controller_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+            args.controller_max_tokens = 0
+        if args.actor_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+            args.actor_max_tokens = 0
+        if args.actor_guard_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+            args.actor_guard_max_tokens = 0
+        if args.situation_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+            args.situation_max_tokens = 0
+        if args.situation_model is None:
+            args.situation_model = args.model
+    if args.plain_json_tools:
+        os.environ["CHARA_DS_TOOL_MODE"] = "plain_json"
 
     if args.model is None:
         args.model = FLASH_MODEL if args.flash else DEFAULT_MODEL

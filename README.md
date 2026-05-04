@@ -126,6 +126,30 @@ uv run python main.py `
   --progress-server
 ```
 
+llama.cpp の OpenAI 互換サーバーで回す場合:
+
+```powershell
+# 例: llama-server --port 8080 --jinja --chat-template-file ...
+uv run python main.py `
+  --llama-cpp `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues_llama.jsonl `
+  --prompt-dir .\prompts `
+  --variations-per-line 1 `
+  --min-turns 4 `
+  --max-turns 6 `
+  --workers 1 `
+  --progress-server
+```
+
+`--llama-cpp` は既定で `--base-url http://127.0.0.1:8080/v1`、`--model local`、`--thinking off`、各 `max_tokens` 省略に切り替えます。DeepSeek 専用の `extra_body.thinking` は送らず、OpenAI 互換の `tools` で構造化出力を要求します。DeepSeek 以外の OpenAI 互換 provider では、通常本文への JSON 出力に逃げないよう `tool_choice: "required"` で tool call を強制します。この生成器は毎回 tool を1つだけ送るため、`required` で対象 function が一意に決まります。ローカル互換サーバーでは `strict` は既定で外します。tool call 実装が壊れているサーバーやモデルを使う場合だけ、フォールバックとして `--plain-json-tools` を追加してください。
+
+Provider port は `base_url` から自動判定します。DeepSeek は thinking / beta strict tools などの専用挙動を維持し、OpenAI / llama.cpp / その他 OpenAI 互換サーバーは標準 Chat Completions tools を優先します。必要な場合だけ環境変数で上書きできます。
+
+- `CHARA_DS_PROVIDER_PORT=deepseek|openai|llama_cpp|openai_compat`
+- `CHARA_DS_TOOL_CHOICE=forced|required|auto`
+- `CHARA_DS_TOOL_CONTENT_FALLBACK=1|0`
+
 制約をかなり緩めた創作寄りプロンプトを使う場合:
 
 ```powershell
@@ -164,6 +188,16 @@ uv run python gen_situations.py `
   --batch-size 8 `
   --seed-situation "Aは長年連れ添った夫、Bは若い後妻、過去の妻の遺品をめぐって静かに口論する。" `
   --seed-situation "Aは厳格な部活顧問、Bは練習をサボった部員、放課後の教室で対峙する。"
+```
+
+llama.cpp でお題生成だけを行う場合:
+
+```powershell
+uv run python gen_situations.py `
+  --llama-cpp `
+  --out .\format.txt `
+  --target 100 `
+  --batch-size 4
 ```
 
 `main.py` の実行中に `format.txt` を増やすこともできます。

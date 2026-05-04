@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from .api_client import call_deepseek_tool, call_with_retries, make_client
-from .config import DEFAULT_BASE_URL
+from .config import DEFAULT_BASE_URL, LLAMA_CPP_DEFAULT_BASE_URL, LLAMA_CPP_DEFAULT_MODEL
 from .io_utils import (
     append_jsonl,
     now_iso,
@@ -276,6 +277,23 @@ def parse_args() -> argparse.Namespace:
                         help="How many existing lines to show the model as anti-duplication context.")
 
     parser.add_argument("--model", default=SITUATION_GEN_MODEL_DEFAULT)
+    parser.add_argument(
+        "--llama-cpp",
+        action="store_true",
+        help=(
+            "Use a local llama.cpp OpenAI-compatible server. Defaults to "
+            f"--base-url {LLAMA_CPP_DEFAULT_BASE_URL}, --model {LLAMA_CPP_DEFAULT_MODEL}, "
+            "and omits max_tokens."
+        ),
+    )
+    parser.add_argument(
+        "--plain-json-tools",
+        action="store_true",
+        help=(
+            "Do not send OpenAI tools. Instead, ask the model to return one JSON "
+            "object matching the tool schema and validate it locally."
+        ),
+    )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--temperature", type=float, default=1.1)
     parser.add_argument("--top-p", type=float, default=0.95)
@@ -305,6 +323,15 @@ def gather_seeds(args: argparse.Namespace, existing: List[str]) -> List[str]:
 
 def main() -> None:
     args = parse_args()
+    if args.llama_cpp:
+        os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "llama_cpp"
+        if args.base_url == DEFAULT_BASE_URL:
+            args.base_url = LLAMA_CPP_DEFAULT_BASE_URL
+        if args.model == SITUATION_GEN_MODEL_DEFAULT:
+            args.model = LLAMA_CPP_DEFAULT_MODEL
+    if args.plain_json_tools:
+        os.environ["CHARA_DS_TOOL_MODE"] = "plain_json"
+
     errors_out = args.errors_out or args.out + ".gen_errors.jsonl"
     prompt_file = args.prompt_file or str(Path(args.prompt_dir) / "situation_gen.txt")
 
