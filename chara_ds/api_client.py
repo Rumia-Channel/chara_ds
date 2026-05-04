@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import traceback
@@ -195,7 +196,7 @@ def _normalize_openai_base_url(base_url: str) -> str:
 
 
 def _is_local_openai_compat_url(base_url: str) -> bool:
-    if os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE") in {"llama_cpp", "local_json"}:
+    if os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE") in {"llama_cpp", "lmstudio", "local_json"}:
         return True
     parsed = urlparse(base_url)
     host = (parsed.hostname or "").lower()
@@ -215,6 +216,9 @@ def _provider_port_for_url(base_url: str) -> str:
 
     if _is_local_openai_compat_url(base_url):
         mode = os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE", "").strip().lower()
+        parsed = urlparse(base_url)
+        if not mode and parsed.port == 1234:
+            return "lmstudio"
         return mode or "local_openai_compat"
 
     parsed = urlparse(base_url)
@@ -262,9 +266,9 @@ def _force_tool_choice_candidates(client: OpenAI, tool_name: str) -> list[Any]:
         # Keep the DeepSeek port permissive and rely on strict tools + fallback.
         return ["auto"]
 
-    # llama.cpp and several OpenAI-compatible servers only accept the string
-    # form. Because we send exactly one tool, "required" still forces the target
-    # function without relying on provider-specific object support.
+    # LM Studio documents string tool_choice values, and llama.cpp builds can
+    # reject the OpenAI object form. Because we send exactly one tool, "required"
+    # still forces the target function without provider-specific object support.
     return ["required"]
 
 
@@ -294,6 +298,53 @@ def _extract_named_tool_arguments(message: Any, tool_name: str) -> tuple[str, in
         if name == tool_name and args.strip():
             return args, len(tool_calls)
     return "", len(tool_calls)
+
+
+_LM_STUDIO_TOOL_BLOCK_RE = re.compile(
+    r"(?:\[TOOL_REQUEST\](.*?)\[END_TOOL_REQUEST\]|<tool_call>(.*?)</tool_call>)",
+    re.DOTALL,
+)
+
+
+def _extract_lmstudio_content_tool_arguments(text: str, tool_name: str) -> str:
+    """Recover LM Studio default/native tool markup when server parsing missed it."""
+
+    if not text or not text.strip():
+        return ""
+
+    candidates = []
+    for match in _LM_STUDIO_TOOL_BLOCK_RE.finditer(text):
+        block = (match.group(1) or match.group(2) or "").strip()
+        if block:
+            candidates.append(block)
+    stripped = text.strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        candidates.append(stripped)
+
+    for candidate in candidates:
+        try:
+            parsed = parse_json(candidate)
+        except Exception:
+            continue
+        if not isinstance(parsed, dict) or parsed.get("name") != tool_name:
+            continue
+        args = parsed.get("arguments")
+        if isinstance(args, str):
+            return args
+        if isinstance(args, dict):
+            return json.dumps(args, ensure_ascii=False, separators=(",", ":"))
+
+    return ""
+
+
+def _is_lmstudio_tool_template_error(client: OpenAI, exc: BadRequestError) -> bool:
+    if _provider_port_for_client(client) != "lmstudio":
+        return False
+    text = str(exc)
+    return (
+        "Error rendering prompt with jinja template" in text
+        or "Cannot call something that is not a function" in text
+    )
 
 
 def make_client(base_url: str) -> OpenAI:
@@ -637,17 +688,101 @@ def _tool_json_system_prompt(
     return (
         system_prompt
         + "\n\n# Structured output contract\n"
-        + "The server may not support OpenAI tool calls. In that case, return ONLY "
-        + "one valid JSON object matching the function arguments schema below. "
-        + "Do not wrap it in markdown and do not add commentary.\n"
-        + json.dumps(
-            {
-                "function_name": tool_name,
-                "description": tool_description,
-                "arguments_json_schema": tool_parameters,
-            },
-            ensure_ascii=False,
+        + f"Return ONLY the JSON arguments object for function `{tool_name}`.\n"
+        + f"Function purpose: {tool_description}\n"
+        + "Do not return the function name. Do not return the schema. "
+        + "Do not use markdown. Do not add commentary.\n"
+        + "The returned object must validate against this JSON Schema:\n"
+        + json.dumps(tool_parameters, ensure_ascii=False)
+    )
+
+
+def _json_schema_response_format(tool_name: str, tool_parameters: Dict[str, Any]) -> Dict[str, Any]:
+    safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", tool_name).strip("_") or "tool_arguments"
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": safe_name,
+            "strict": True,
+            "schema": tool_parameters,
+        },
+    }
+
+
+def _call_plain_json_tool(
+    client: OpenAI,
+    *,
+    model: str,
+    system_prompt: str,
+    user_payload: Dict[str, Any],
+    tool_name: str,
+    tool_description: str,
+    tool_parameters: Dict[str, Any],
+    max_tokens: Optional[int],
+    reasoning_effort: str,
+    thinking_enabled: Optional[bool],
+    temperature: Optional[float],
+    top_p: Optional[float],
+    static_context: Optional[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
+    messages = _build_messages(
+        _tool_json_system_prompt(
+            system_prompt=system_prompt,
+            tool_name=tool_name,
+            tool_description=tool_description,
+            tool_parameters=tool_parameters,
+        ),
+        user_payload,
+        static_context,
+    )
+    kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+    }
+    if _provider_port_for_client(client) == "lmstudio":
+        kwargs["response_format"] = _json_schema_response_format(tool_name, tool_parameters)
+    if max_tokens is not None and max_tokens > 0:
+        kwargs["max_tokens"] = max_tokens
+    _apply_chat_controls(
+        kwargs,
+        client=client,
+        thinking_enabled=thinking_enabled,
+        reasoning_effort=reasoning_effort,
+        temperature=temperature,
+        top_p=top_p,
+    )
+    response = client.chat.completions.create(**kwargs)
+
+    choice = response.choices[0]
+    msg = choice.message
+    raw_content = msg.content or ""
+    reasoning_content = get_reasoning_content(msg)
+    usage = usage_to_dict(getattr(response, "usage", None))
+    finish_reason = getattr(choice, "finish_reason", None)
+
+    if raw_content.strip():
+        parsed = _parse_tool_arguments_or_raise(
+            text=raw_content,
+            source="message.content",
+            reasoning_content=reasoning_content,
+            finish_reason=finish_reason,
+            usage=usage,
+            tool_parameters=tool_parameters,
         )
+        return parsed, reasoning_content, usage, raw_content
+    if reasoning_content and reasoning_content.strip():
+        parsed = _parse_tool_arguments_or_raise(
+            text=reasoning_content,
+            source="reasoning_content",
+            reasoning_content=reasoning_content,
+            finish_reason=finish_reason,
+            usage=usage,
+            tool_parameters=tool_parameters,
+        )
+        return parsed, reasoning_content, usage, reasoning_content
+    raise ValueError(
+        "empty structured JSON content "
+        f"(finish_reason={finish_reason!r}, usage={usage})"
     )
 
 
@@ -679,62 +814,20 @@ def call_deepseek_tool(
     """
     use_plain_json = _use_plain_json_tools()
     if use_plain_json:
-        messages = _build_messages(
-            _tool_json_system_prompt(
-                system_prompt=system_prompt,
-                tool_name=tool_name,
-                tool_description=tool_description,
-                tool_parameters=tool_parameters,
-            ),
-            user_payload,
-            static_context,
-        )
-        kwargs: Dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-        }
-        if max_tokens is not None and max_tokens > 0:
-            kwargs["max_tokens"] = max_tokens
-        _apply_chat_controls(
-            kwargs,
+        return _call_plain_json_tool(
             client=client,
+            model=model,
+            system_prompt=system_prompt,
+            user_payload=user_payload,
+            static_context=static_context,
+            tool_name=tool_name,
+            tool_description=tool_description,
+            tool_parameters=tool_parameters,
+            max_tokens=max_tokens,
             thinking_enabled=thinking_enabled,
             reasoning_effort=reasoning_effort,
             temperature=temperature,
             top_p=top_p,
-        )
-        response = client.chat.completions.create(**kwargs)
-
-        choice = response.choices[0]
-        msg = choice.message
-        raw_content = msg.content or ""
-        reasoning_content = get_reasoning_content(msg)
-        usage = usage_to_dict(getattr(response, "usage", None))
-        finish_reason = getattr(choice, "finish_reason", None)
-
-        if raw_content.strip():
-            parsed = _parse_tool_arguments_or_raise(
-                text=raw_content,
-                source="message.content",
-                reasoning_content=reasoning_content,
-                finish_reason=finish_reason,
-                usage=usage,
-                tool_parameters=tool_parameters,
-            )
-            return parsed, reasoning_content, usage, raw_content
-        if reasoning_content and reasoning_content.strip():
-            parsed = _parse_tool_arguments_or_raise(
-                text=reasoning_content,
-                source="reasoning_content",
-                reasoning_content=reasoning_content,
-                finish_reason=finish_reason,
-                usage=usage,
-                tool_parameters=tool_parameters,
-            )
-            return parsed, reasoning_content, usage, reasoning_content
-        raise ValueError(
-            "empty structured JSON content "
-            f"(finish_reason={finish_reason!r}, usage={usage})"
         )
 
     messages = _build_messages(system_prompt, user_payload, static_context)
@@ -796,6 +889,22 @@ def call_deepseek_tool(
             kwargs["extra_body"] = extra_body
             response = client.chat.completions.create(**kwargs)
         except BadRequestError as e:
+            if _is_lmstudio_tool_template_error(client, e):
+                return _call_plain_json_tool(
+                    client=client,
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_payload=user_payload,
+                    static_context=static_context,
+                    tool_name=tool_name,
+                    tool_description=tool_description,
+                    tool_parameters=tool_parameters,
+                    max_tokens=max_tokens,
+                    thinking_enabled=thinking_enabled,
+                    reasoning_effort=reasoning_effort,
+                    temperature=temperature,
+                    top_p=top_p,
+                )
             last_bad_request = e
             continue
 
@@ -819,6 +928,19 @@ def call_deepseek_tool(
     # content/reasoning. Generic OpenAI-compatible providers should have been
     # forced into tool_calls, so do not silently parse message content there.
     if not raw_args:
+        if _provider_port_for_client(client) == "lmstudio":
+            raw_args = _extract_lmstudio_content_tool_arguments(msg.content or "", tool_name)
+            if raw_args:
+                parsed = _parse_tool_arguments_or_raise(
+                    text=raw_args,
+                    source="lmstudio.content_tool_markup",
+                    reasoning_content=reasoning_content,
+                    finish_reason=finish_reason,
+                    usage=usage,
+                    tool_parameters=tool_parameters,
+                )
+                return parsed, reasoning_content, usage, raw_args
+
         if not _allow_tool_content_fallback(client):
             body_len = len((msg.content or "").strip())
             raise ValueError(

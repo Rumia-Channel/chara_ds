@@ -17,7 +17,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from .api_client import call_deepseek_tool, call_with_retries, make_client
-from .config import DEFAULT_BASE_URL, LLAMA_CPP_DEFAULT_BASE_URL, LLAMA_CPP_DEFAULT_MODEL
+from .config import (
+    DEFAULT_BASE_URL,
+    LLAMA_CPP_DEFAULT_BASE_URL,
+    LLAMA_CPP_DEFAULT_MODEL,
+    LM_STUDIO_DEFAULT_BASE_URL,
+    LM_STUDIO_DEFAULT_MODEL,
+)
 from .io_utils import (
     append_jsonl,
     now_iso,
@@ -287,6 +293,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--lmstudio",
+        action="store_true",
+        help=(
+            "Use LM Studio's local OpenAI-compatible server. Defaults to "
+            f"--base-url {LM_STUDIO_DEFAULT_BASE_URL}, --model {LM_STUDIO_DEFAULT_MODEL}, "
+            "and omits max_tokens."
+        ),
+    )
+    parser.add_argument(
         "--plain-json-tools",
         action="store_true",
         help=(
@@ -323,12 +338,16 @@ def gather_seeds(args: argparse.Namespace, existing: List[str]) -> List[str]:
 
 def main() -> None:
     args = parse_args()
-    if args.llama_cpp:
-        os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "llama_cpp"
+    if args.llama_cpp and args.lmstudio:
+        raise ValueError("--llama-cpp and --lmstudio cannot be combined")
+    if args.llama_cpp or args.lmstudio:
+        os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "lmstudio" if args.lmstudio else "llama_cpp"
+        default_base_url = LM_STUDIO_DEFAULT_BASE_URL if args.lmstudio else LLAMA_CPP_DEFAULT_BASE_URL
+        default_model = LM_STUDIO_DEFAULT_MODEL if args.lmstudio else LLAMA_CPP_DEFAULT_MODEL
         if args.base_url == DEFAULT_BASE_URL:
-            args.base_url = LLAMA_CPP_DEFAULT_BASE_URL
+            args.base_url = default_base_url
         if args.model == SITUATION_GEN_MODEL_DEFAULT:
-            args.model = LLAMA_CPP_DEFAULT_MODEL
+            args.model = default_model
     if args.plain_json_tools:
         os.environ["CHARA_DS_TOOL_MODE"] = "plain_json"
 

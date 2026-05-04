@@ -25,6 +25,8 @@ from .config import (
     FLASH_MODEL,
     LLAMA_CPP_DEFAULT_BASE_URL,
     LLAMA_CPP_DEFAULT_MODEL,
+    LM_STUDIO_DEFAULT_BASE_URL,
+    LM_STUDIO_DEFAULT_MODEL,
     PRO_MODEL,
     PersonaLine,
     PromptBundle,
@@ -753,6 +755,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--lmstudio",
+        action="store_true",
+        help=(
+            "Shortcut for LM Studio's local OpenAI-compatible server. "
+            f"Defaults to --base-url {LM_STUDIO_DEFAULT_BASE_URL}, "
+            f"--model {LM_STUDIO_DEFAULT_MODEL}, --thinking off, and omits max_tokens."
+        ),
+    )
+    parser.add_argument(
         "--plain-json-tools",
         action="store_true",
         help=(
@@ -1049,12 +1060,17 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    if args.llama_cpp:
-        os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "llama_cpp"
+    if args.llama_cpp and args.lmstudio:
+        raise ValueError("--llama-cpp and --lmstudio cannot be combined")
+
+    if args.llama_cpp or args.lmstudio:
+        os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "lmstudio" if args.lmstudio else "llama_cpp"
+        default_base_url = LM_STUDIO_DEFAULT_BASE_URL if args.lmstudio else LLAMA_CPP_DEFAULT_BASE_URL
+        default_model = LM_STUDIO_DEFAULT_MODEL if args.lmstudio else LLAMA_CPP_DEFAULT_MODEL
         if args.base_url == DEFAULT_BASE_URL:
-            args.base_url = LLAMA_CPP_DEFAULT_BASE_URL
+            args.base_url = default_base_url
         if args.model is None:
-            args.model = LLAMA_CPP_DEFAULT_MODEL
+            args.model = default_model
         if args.thinking == "default":
             args.thinking = "off"
         if args.persona_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:

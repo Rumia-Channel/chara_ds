@@ -150,6 +150,23 @@ Provider port は `base_url` から自動判定します。DeepSeek は thinking
 - `CHARA_DS_TOOL_CHOICE=forced|required|auto`
 - `CHARA_DS_TOOL_CONTENT_FALLBACK=1|0`
 
+LM Studio のローカルサーバーで回す場合:
+
+```powershell
+uv run python main.py `
+  --lmstudio `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues_lmstudio.jsonl `
+  --prompt-dir .\prompts `
+  --variations-per-line 1 `
+  --min-turns 4 `
+  --max-turns 6 `
+  --workers 1 `
+  --progress-server
+```
+
+`--lmstudio` は既定で `--base-url http://127.0.0.1:1234/v1`、`--model local`、`--thinking off`、各 `max_tokens` 省略に切り替えます。LM Studio は model 出力を OpenAI 互換の `tool_calls` にパースしますが、モデルや template によっては tool request が通常本文に戻ることがあります。この場合、LM Studio の既定形式 `[TOOL_REQUEST]... [END_TOOL_REQUEST]` と native 形式 `<tool_call>...</tool_call>` だけを救済して tool arguments として検証します。
+
 制約をかなり緩めた創作寄りプロンプトを使う場合:
 
 ```powershell
@@ -199,6 +216,8 @@ uv run python gen_situations.py `
   --target 100 `
   --batch-size 4
 ```
+
+LM Studio でお題生成だけを行う場合は `--lmstudio` を指定します。
 
 `main.py` の実行中に `format.txt` を増やすこともできます。
 
