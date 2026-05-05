@@ -17,21 +17,88 @@ PERSONA_CONTROLLER_TOOL_DESCRIPTION = (
     "user_txt から A/B キャラクターの persona_seed を作成して提出する。"
     "人物設定・関係性・場面制約を含む。"
 )
+_CHARACTER_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "role": {"type": "string"},
+        "age_band": {
+            "type": "string",
+            "enum": [
+                "child", "early_teen", "teen", "late_teen",
+                "young_adult", "adult", "20s", "30s", "40s",
+                "50s", "60s+", "unspecified",
+            ],
+        },
+        "gender": {
+            "type": "string",
+            "enum": ["female", "male", "nonbinary", "unspecified"],
+        },
+        "personality": {"type": "string"},
+        "speech_style": {
+            "type": "object",
+            "properties": {
+                "register": {
+                    "type": "string",
+                    "enum": [
+                        "casual", "polite", "rough", "formal",
+                        "childish", "archaic", "dialect", "other",
+                    ],
+                },
+                "first_person": {"type": "string"},
+                "second_person_for_partner": {"type": "string"},
+                "sentence_endings": {
+                    "type": "array", "items": {"type": "string"},
+                },
+                "interjections": {
+                    "type": "array", "items": {"type": "string"},
+                },
+                "swear_words_when_angry": {
+                    "type": "array", "items": {"type": "string"},
+                },
+                "dialect_or_accent": {"type": "string"},
+                "speech_quirks": {"type": "string"},
+                "example_calm_line": {"type": "string"},
+                "example_angry_line": {"type": "string"},
+                "forbidden_phrases": {
+                    "type": "array", "items": {"type": "string"},
+                },
+            },
+            "required": [
+                "register", "first_person", "second_person_for_partner",
+                "sentence_endings", "interjections", "swear_words_when_angry",
+                "dialect_or_accent", "speech_quirks", "example_calm_line",
+                "example_angry_line", "forbidden_phrases",
+            ],
+            "additionalProperties": False,
+        },
+        "values": {"type": "array", "items": {"type": "string"}},
+        "weaknesses": {"type": "array", "items": {"type": "string"}},
+        "default_goal": {"type": "string"},
+        "private_background": {"type": "string"},
+        "public_profile": {"type": "string"},
+        "forbidden_disclosures": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [
+        "role", "age_band", "gender", "personality", "speech_style",
+        "values", "weaknesses", "default_goal", "private_background",
+        "public_profile", "forbidden_disclosures",
+    ],
+    "additionalProperties": False,
+}
+
+
 PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
     "type": "object",
     "properties": {
         "persona_seed": {
             "type": "object",
-            "description": "A/B キャラクターの完全な人物設定。",
             "properties": {
                 "source_summary": {
                     "type": "string",
-                    "description": "user_txt の要約。",
                 },
                 "safety_transformations": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "施した匿名化・抽象化のリスト。",
                 },
                 "global_style": {
                     "type": "object",
@@ -46,7 +113,7 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                                 "school_conflict", "workplace_conflict", "other",
                             ],
                         },
-                        "locale": {"type": "string", "description": "常に ja-JP"},
+                        "locale": {"type": "string"},
                         "tone": {
                             "type": "string",
                             "enum": [
@@ -62,142 +129,8 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                 "characters": {
                     "type": "object",
                     "properties": {
-                        "A": {
-                            "type": "object",
-                            "properties": {
-                                "role": {"type": "string"},
-                                "age_band": {
-                                    "type": "string",
-                                    "enum": [
-                                        "child", "early_teen", "teen", "late_teen",
-                                        "young_adult", "adult", "20s", "30s", "40s",
-                                        "50s", "60s+", "unspecified",
-                                    ],
-                                },
-                                "gender": {
-                                    "type": "string",
-                                    "enum": ["female", "male", "nonbinary", "unspecified"],
-                                },
-                                "personality": {"type": "string"},
-                                "speech_style": {
-                                    "type": "object",
-                                    "properties": {
-                                        "register": {
-                                            "type": "string",
-                                            "enum": [
-                                                "casual", "polite", "rough", "formal",
-                                                "childish", "archaic", "dialect", "other",
-                                            ],
-                                        },
-                                        "first_person": {"type": "string"},
-                                        "second_person_for_partner": {"type": "string"},
-                                        "sentence_endings": {
-                                            "type": "array", "items": {"type": "string"},
-                                        },
-                                        "interjections": {
-                                            "type": "array", "items": {"type": "string"},
-                                        },
-                                        "swear_words_when_angry": {
-                                            "type": "array", "items": {"type": "string"},
-                                        },
-                                        "dialect_or_accent": {"type": "string"},
-                                        "speech_quirks": {"type": "string"},
-                                        "example_calm_line": {"type": "string"},
-                                        "example_angry_line": {"type": "string"},
-                                        "forbidden_phrases": {
-                                            "type": "array", "items": {"type": "string"},
-                                        },
-                                    },
-                                    "required": [
-                                        "register", "first_person", "second_person_for_partner",
-                                        "sentence_endings", "interjections", "swear_words_when_angry",
-                                        "dialect_or_accent", "speech_quirks", "example_calm_line",
-                                        "example_angry_line", "forbidden_phrases",
-                                    ],
-                                    "additionalProperties": False,
-                                },
-                                "values": {"type": "array", "items": {"type": "string"}},
-                                "weaknesses": {"type": "array", "items": {"type": "string"}},
-                                "default_goal": {"type": "string"},
-                                "private_background": {"type": "string"},
-                                "public_profile": {"type": "string"},
-                                "forbidden_disclosures": {"type": "array", "items": {"type": "string"}},
-                            },
-                            "required": [
-                                "role", "age_band", "gender", "personality", "speech_style",
-                                "values", "weaknesses", "default_goal", "private_background",
-                                "public_profile", "forbidden_disclosures",
-                            ],
-                            "additionalProperties": False,
-                        },
-                        "B": {
-                            "type": "object",
-                            "properties": {
-                                "role": {"type": "string"},
-                                "age_band": {
-                                    "type": "string",
-                                    "enum": [
-                                        "child", "early_teen", "teen", "late_teen",
-                                        "young_adult", "adult", "20s", "30s", "40s",
-                                        "50s", "60s+", "unspecified",
-                                    ],
-                                },
-                                "gender": {
-                                    "type": "string",
-                                    "enum": ["female", "male", "nonbinary", "unspecified"],
-                                },
-                                "personality": {"type": "string"},
-                                "speech_style": {
-                                    "type": "object",
-                                    "properties": {
-                                        "register": {
-                                            "type": "string",
-                                            "enum": [
-                                                "casual", "polite", "rough", "formal",
-                                                "childish", "archaic", "dialect", "other",
-                                            ],
-                                        },
-                                        "first_person": {"type": "string"},
-                                        "second_person_for_partner": {"type": "string"},
-                                        "sentence_endings": {
-                                            "type": "array", "items": {"type": "string"},
-                                        },
-                                        "interjections": {
-                                            "type": "array", "items": {"type": "string"},
-                                        },
-                                        "swear_words_when_angry": {
-                                            "type": "array", "items": {"type": "string"},
-                                        },
-                                        "dialect_or_accent": {"type": "string"},
-                                        "speech_quirks": {"type": "string"},
-                                        "example_calm_line": {"type": "string"},
-                                        "example_angry_line": {"type": "string"},
-                                        "forbidden_phrases": {
-                                            "type": "array", "items": {"type": "string"},
-                                        },
-                                    },
-                                    "required": [
-                                        "register", "first_person", "second_person_for_partner",
-                                        "sentence_endings", "interjections", "swear_words_when_angry",
-                                        "dialect_or_accent", "speech_quirks", "example_calm_line",
-                                        "example_angry_line", "forbidden_phrases",
-                                    ],
-                                    "additionalProperties": False,
-                                },
-                                "values": {"type": "array", "items": {"type": "string"}},
-                                "weaknesses": {"type": "array", "items": {"type": "string"}},
-                                "default_goal": {"type": "string"},
-                                "private_background": {"type": "string"},
-                                "public_profile": {"type": "string"},
-                                "forbidden_disclosures": {"type": "array", "items": {"type": "string"}},
-                            },
-                            "required": [
-                                "role", "age_band", "gender", "personality", "speech_style",
-                                "values", "weaknesses", "default_goal", "private_background",
-                                "public_profile", "forbidden_disclosures",
-                            ],
-                            "additionalProperties": False,
-                        },
+                        "A": _CHARACTER_SCHEMA,
+                        "B": _CHARACTER_SCHEMA,
                     },
                     "required": ["A", "B"],
                     "additionalProperties": False,
@@ -221,7 +154,6 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                 },
                 "norm_profile_ids": {
                     "type": "object",
-                    "description": "各キャラクターの設計で参照した age_gender_norms の id。未使用なら空配列。",
                     "properties": {
                         "A": {"type": "array", "items": {"type": "string"}},
                         "B": {"type": "array", "items": {"type": "string"}},
@@ -232,10 +164,6 @@ PERSONA_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
                 "explicit_overrides_from_user_txt": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": (
-                        "user_txt の明示指定が age_gender_norms の一般基準より優先された点。"
-                        "例: A は男勝り口調が明示されているため、その範囲では baseline より優先。"
-                    ),
                 },
                 "scenario_constraints": {
                     "type": "object",
@@ -307,48 +235,37 @@ ACTOR_GUARD_TOOL_PARAMETERS: Dict[str, Any] = {
     "properties": {
         "pass": {
             "type": "boolean",
-            "description": "問題なければ true、Actor に指摘を返して書き直させるべきなら false。",
         },
         "severity": {
             "type": "string",
             "enum": ["ok", "minor", "major", "critical"],
-            "description": "問題の深刻度。",
         },
         "reason_ja": {
             "type": "string",
-            "description": "判定理由。pass=true なら短く「問題なし」。",
         },
         "suggested_fix_ja": {
             "type": "string",
-            "description": "pass=false のとき、Actor がどう直すべきかを短く具体的に書く。",
         },
         "filler_analysis": {
             "type": "object",
-            "description": "同一話者の口癖・笑い出し・フィラー反復の判定結果。",
             "properties": {
                 "current_leading_filler_text": {
                     "type": "string",
-                    "description": "現在発話の先頭にある口癖・笑い出し・フィラー。なければ空文字。",
                 },
                 "current_leading_filler_family": {
                     "type": "string",
-                    "description": "表記ゆれをまとめた family 名。例: ふふ系、えっと系、ねえ系。なければ空文字。",
                 },
                 "consecutive_including_current": {
                     "type": "integer",
-                    "description": "同一話者で同じ family が連続している回数。現在発話に family がなければ 0。",
                 },
                 "recent_same_filler_count_including_current": {
                     "type": "integer",
-                    "description": "同一話者の直近5発話相当で同じ family が出た回数。現在発話に family がなければ 0。",
                 },
                 "is_repeated_filler_problem": {
                     "type": "boolean",
-                    "description": "反復が不自然で修正対象なら true。",
                 },
                 "notes_ja": {
                     "type": "string",
-                    "description": "判定メモ。問題なしなら短く理由を書く。",
                 },
             },
             "required": [
@@ -375,7 +292,7 @@ CONVERSATION_AUDITOR_TOOL_DESCRIPTION = (
 CONVERSATION_AUDITOR_TOOL_PARAMETERS: Dict[str, Any] = {
     "type": "object",
     "properties": {
-        "overall_score": {"type": "integer", "description": "0-100。高いほど自然で一貫している。"},
+        "overall_score": {"type": "integer"},
         "pass": {"type": "boolean"},
         "summary_ja": {"type": "string"},
         "critical_issues": {
@@ -464,26 +381,18 @@ ACTOR_TOOL_PARAMETERS: Dict[str, Any] = {
     "properties": {
         "thinking_trace_ja": {
             "type": "string",
-            "description": "キャラクター本人の日本語の短い思考過程（状況理解・葛藤・選択理由）。",
         },
         "character_thought": {
             "type": "string",
-            "description": "キャラクター本人の自然な内心。",
         },
         "physical_action": {
             "type": "string",
-            "description": (
-                "目に見える身体行動・表情・視線・接触・攻撃・防御・痛みへの反応などを"
-                "1〜3文の自然な日本語で書く。何もしない場合は『特に動かない。』のように短く書く。"
-            ),
         },
         "public_utterance": {
             "type": "string",
-            "description": "実際に相手へ言うセリフ本文。鉤括弧で囲まない。空文字は不可。",
         },
         "subtext": {
             "type": "string",
-            "description": "発話の裏にある本心、相手に伝わらない含意。",
         },
     },
     "required": [
@@ -584,7 +493,6 @@ GRAND_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
         },
         "turn_controller_instruction": {
             "type": "string",
-            "description": "Turn Controller が次ターン制御に反映する大局指示。",
         },
     },
     "required": [
@@ -628,59 +536,45 @@ TURN_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
         "next_speaker": {
             "type": "string",
             "enum": ["A", "B"],
-            "description": "次に発話・行動する話者。",
         },
         "scene_state": {
             "type": "string",
-            "description": "現在の場面状態。衣装、装備、小道具、位置関係、接触、負傷、疲労を含めて更新する。",
         },
         "state_memory": {
             "type": "object",
-            "description": "長期会話・長期戦闘のために次ターン以降へ保持する構造化メモ。",
             "properties": {
                 "participants_status": {
                     "type": "string",
-                    "description": "A/B の姿勢、位置、拘束、接触、心理的優勢/劣勢、行動不能状態など。",
                 },
                 "environment_state": {
                     "type": "string",
-                    "description": "場所、家具、遮蔽物、逃げ道、照明、騒音、第三者の有無など。",
                 },
                 "props_and_weapons": {
                     "type": "string",
-                    "description": "誰が何を持つ/失う/手が届く位置にあるか。服や小道具も含む。",
                 },
                 "injuries_and_fatigue": {
                     "type": "string",
-                    "description": "負傷、痛み、息切れ、疲労、出血、動作制限。未確定なら未確定と書く。",
                 },
                 "relationship_state": {
                     "type": "string",
-                    "description": "感情の距離、信頼/不信、怒り、恐怖、執着、誤解、優位性など。",
                 },
                 "conversation_decisions": {
                     "type": "string",
-                    "description": "会話で決まったこと、暫定合意、拒否された案、誰が何をする順番か。例: Bが先に入る、Aは後ろからついていく。",
                 },
                 "recent_dialogue_facts": {
                     "type": "string",
-                    "description": "直近3〜8ターンの重要な発言内容と、それに対する同意/反対/修正。台詞全文ではなく要点。",
                 },
                 "speaker_commitments": {
                     "type": "string",
-                    "description": "A/B が明示した約束、意志、拒否、条件。誰が言ったかを区別する。",
                 },
                 "open_threads": {
                     "type": "string",
-                    "description": "まだ回収していない話題、伏線、誤解、約束、脅し、問い。",
                 },
                 "established_facts": {
                     "type": "string",
-                    "description": "以後覆してはいけない公開済み事実。public_timeline で見えた事実だけ。",
                 },
                 "forbidden_contradictions": {
                     "type": "string",
-                    "description": "次ターン以降で避けるべき矛盾。例: 落とした武器を手元に戻さない、脱いだ服を着ている前提にしない。",
                 },
             },
             "required": [
@@ -701,15 +595,12 @@ TURN_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
         "conversation_pressure": {
             "type": "string",
             "enum": ["low", "medium", "high", "extreme"],
-            "description": "現在の会話圧。",
         },
         "public_event": {
             "type": "string",
-            "description": "この制御ターンで認識される環境変化・沈黙・緊張など。発話本文は書かない。",
         },
         "hidden_controller_intent": {
             "type": "string",
-            "description": "Controller 側の展開意図。Actor の発話本文ではない。",
         },
         "directive_for_next_speaker": {
             "type": "object",
@@ -733,15 +624,12 @@ TURN_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
         },
         "expected_next_effect": {
             "type": "string",
-            "description": "次ターン後に起こりうる効果。確定しすぎない。",
         },
         "should_end": {
             "type": "boolean",
-            "description": "自然に区切れる場合のみ true。",
         },
         "end_reason": {
             "type": "string",
-            "description": "should_end の理由。false なら空文字。",
         },
     },
     "required": [
@@ -1231,7 +1119,7 @@ def call_actor(
         "state_memory": turn_control.get("state_memory"),
         "conversation_pressure": turn_control.get("conversation_pressure"),
         "public_event": turn_control.get("public_event"),
-        "public_timeline": public_timeline,
+        "public_timeline": public_timeline[-5:] if len(public_timeline) > 5 else public_timeline,
     }
 
     if actor_guard_feedback:
@@ -1375,14 +1263,24 @@ def call_actor_guard(
     thinking_enabled: bool,
     tool_strict: bool = True,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
+    characters = persona_seed.get("characters", {})
     static_context = {
         "task": "judge_actor_turn_consistency",
         "instruction": (
             "第三者の編集者として、直前の actor output が人物設定・年齢・性別・"
             "身体能力・場面状態・口調・直前文脈に合うかだけを判定する。"
         ),
+        "age_gender_norms_index": prompts.age_gender_norms_index,
+        "age_gender_norms_selected": load_selected_norms(
+            prompts.age_gender_norms_dir,
+            prompts.age_gender_norms_index,
+            select_norm_ids_for_profile(
+                prompts.age_gender_norms_index,
+                characters.get(speaker) if isinstance(characters, dict) else {},
+            ),
+        ),
+        "age_gender_norms_legacy": prompts.age_gender_norms if not prompts.age_gender_norms_index else "",
     }
-    characters = persona_seed.get("characters", {})
     payload = {
         "speaker": speaker,
         "turn_index": turn_index,
@@ -1394,16 +1292,6 @@ def call_actor_guard(
         "scenario_constraints": persona_seed.get("scenario_constraints", {}),
         "norm_profile_ids": persona_seed.get("norm_profile_ids", {}),
         "explicit_overrides_from_user_txt": persona_seed.get("explicit_overrides_from_user_txt", []),
-        "age_gender_norms_index": prompts.age_gender_norms_index,
-        "age_gender_norms_selected": load_selected_norms(
-            prompts.age_gender_norms_dir,
-            prompts.age_gender_norms_index,
-            select_norm_ids_for_profile(
-                prompts.age_gender_norms_index,
-                characters.get(speaker) if isinstance(characters, dict) else {},
-            ),
-        ),
-        "age_gender_norms_legacy": prompts.age_gender_norms if not prompts.age_gender_norms_index else "",
         "conversation_pressure": conversation_pressure,
         "controller_directive_for_speaker": turn_control.get("directive_for_next_speaker", {}),
         "scene_state": turn_control.get("scene_state"),
@@ -1489,10 +1377,8 @@ def call_conversation_auditor(
         "turns_for_audit": [
             {
                 "turn": turn.get("turn"),
-                "controller": turn.get("controller", {}),
-                "actor": turn.get("actor", {}),
-                "actor_guard": turn.get("actor_guard", {}),
                 "public_event": turn.get("public_event", {}),
+                "guard_severity": (turn.get("actor_guard", {}) or {}).get("severity"),
             }
             for turn in turns
             if isinstance(turn, dict)
