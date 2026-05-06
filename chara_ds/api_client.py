@@ -265,9 +265,9 @@ def _force_tool_choice_candidates(client: OpenAI, tool_name: str) -> list[Any]:
     if override == "forced":
         return [{"type": "function", "function": {"name": tool_name}}, "required"]
 
-    if _is_deepseek_client(client):
-        # DeepSeek reasoner has historically rejected specific function forcing.
-        # Keep the DeepSeek port permissive and rely on strict tools + fallback.
+    if _is_deepseek_client(client) or _is_opencode_go_client(client):
+        # DeepSeek reasoner rejects specific function forcing; Go proxies to
+        # DeepSeek and other reasoner-class models with the same limitation.
         return ["auto"]
 
     # LM Studio documents string tool_choice values, and llama.cpp builds can
