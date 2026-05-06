@@ -167,6 +167,25 @@ uv run python main.py `
 
 `--lmstudio` は既定で `--base-url http://127.0.0.1:1234/v1`、`--model local`、`--thinking off`、各 `max_tokens` 省略に切り替えます。LM Studio は model 出力を OpenAI 互換の `tool_calls` にパースしますが、モデルや template によっては tool request が通常本文に戻ることがあります。この場合、LM Studio の既定形式 `[TOOL_REQUEST]... [END_TOOL_REQUEST]` と native 形式 `<tool_call>...</tool_call>` だけを救済して tool arguments として検証します。
 
+OpenCode Go のリモート API で回す場合:
+
+```powershell
+$env:OPENCODE_GO_API_KEY = "sk-..."
+
+uv run python main.py `
+  --opencode-go `
+  --persona-txt .\format.txt `
+  --out .\persona_dialogues_opencode_go.jsonl `
+  --prompt-dir .\prompts `
+  --variations-per-line 1 `
+  --min-turns 4 `
+  --max-turns 6 `
+  --workers 2 `
+  --progress-server
+```
+
+`--opencode-go` は既定で `--base-url https://opencode.ai/zen/go/v1`、`--model deepseek-v4-pro`、`--thinking off`、各 `max_tokens` 省略に切り替えます。API キーは環境変数 `OPENCODE_GO_API_KEY` で設定します。`--model` を上書きすれば `kimi-k2.6` や `qwen3.5-plus` など Go で利用可能な他のモデルも使えます。DeepSeek 専用の `extra_body.thinking` は送らず、標準 OpenAI 互換 `tools` で構造化出力を要求します。
+
 制約をかなり緩めた創作寄りプロンプトを使う場合:
 
 ```powershell
@@ -218,6 +237,7 @@ uv run python gen_situations.py `
 ```
 
 LM Studio でお題生成だけを行う場合は `--lmstudio` を指定します。
+OpenCode Go でお題生成だけを行う場合は `--opencode-go` を指定します。
 
 `main.py` の実行中に `format.txt` を増やすこともできます。
 

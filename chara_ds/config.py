@@ -15,6 +15,8 @@ LLAMA_CPP_DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1"
 LLAMA_CPP_DEFAULT_MODEL = "local"
 LM_STUDIO_DEFAULT_BASE_URL = "http://127.0.0.1:1234/v1"
 LM_STUDIO_DEFAULT_MODEL = "local"
+OPENCODE_GO_DEFAULT_BASE_URL = "https://opencode.ai/zen/go/v1"
+OPENCODE_GO_DEFAULT_MODEL = "deepseek-v4-pro"
 # Beta endpoint required for `strict: true` tool schemas (and other beta features).
 # The non-beta endpoint will reject `strict: true` with a 400.
 DEFAULT_BASE_URL = "https://api.deepseek.com/beta"

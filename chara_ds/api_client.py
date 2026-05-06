@@ -238,6 +238,10 @@ def _is_deepseek_client(client: OpenAI) -> bool:
     return _provider_port_for_client(client) == "deepseek"
 
 
+def _is_opencode_go_client(client: OpenAI) -> bool:
+    return os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE") == "opencode_go"
+
+
 def _use_plain_json_tools() -> bool:
     return os.environ.get("CHARA_DS_TOOL_MODE") == "plain_json"
 
@@ -247,7 +251,7 @@ def _supports_strict_tools(client: OpenAI) -> bool:
         return True
     if os.environ.get("CHARA_DS_TOOL_STRICT") == "0":
         return False
-    return not _is_local_openai_compat_client(client)
+    return not _is_local_openai_compat_client(client) and not _is_opencode_go_client(client)
 
 
 def _force_tool_choice_candidates(client: OpenAI, tool_name: str) -> list[Any]:
@@ -353,6 +357,7 @@ def make_client(base_url: str) -> OpenAI:
         os.environ.get("DEEPSEEK_API_KEY")
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("LLAMA_CPP_API_KEY")
+        or os.environ.get("OPENCODE_GO_API_KEY")
     )
     if not api_key and _is_local_openai_compat_url(base_url):
         api_key = "sk-no-key-required"
@@ -389,7 +394,10 @@ def _apply_chat_controls(
     field unless plain-json fallback mode is explicitly enabled.
     """
 
-    supports_deepseek_extras = not _is_local_openai_compat_client(client)
+    supports_deepseek_extras = (
+        not _is_local_openai_compat_client(client)
+        and not _is_opencode_go_client(client)
+    )
 
     if thinking_enabled and supports_deepseek_extras:
         kwargs["reasoning_effort"] = reasoning_effort

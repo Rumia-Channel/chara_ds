@@ -23,6 +23,8 @@ from .config import (
     LLAMA_CPP_DEFAULT_MODEL,
     LM_STUDIO_DEFAULT_BASE_URL,
     LM_STUDIO_DEFAULT_MODEL,
+    OPENCODE_GO_DEFAULT_BASE_URL,
+    OPENCODE_GO_DEFAULT_MODEL,
 )
 from .io_utils import (
     append_jsonl,
@@ -302,6 +304,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--opencode-go",
+        action="store_true",
+        help=(
+            "Use OpenCode Go remote API. Defaults to "
+            f"--base-url {OPENCODE_GO_DEFAULT_BASE_URL}, --model {OPENCODE_GO_DEFAULT_MODEL}, "
+            "and omits max_tokens. Set OPENCODE_GO_API_KEY environment variable."
+        ),
+    )
+    parser.add_argument(
         "--plain-json-tools",
         action="store_true",
         help=(
@@ -340,10 +351,21 @@ def main() -> None:
     args = parse_args()
     if args.llama_cpp and args.lmstudio:
         raise ValueError("--llama-cpp and --lmstudio cannot be combined")
-    if args.llama_cpp or args.lmstudio:
-        os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "lmstudio" if args.lmstudio else "llama_cpp"
-        default_base_url = LM_STUDIO_DEFAULT_BASE_URL if args.lmstudio else LLAMA_CPP_DEFAULT_BASE_URL
-        default_model = LM_STUDIO_DEFAULT_MODEL if args.lmstudio else LLAMA_CPP_DEFAULT_MODEL
+    if args.opencode_go and (args.llama_cpp or args.lmstudio):
+        raise ValueError("--opencode-go cannot be combined with --llama-cpp or --lmstudio")
+    if args.llama_cpp or args.lmstudio or args.opencode_go:
+        if args.opencode_go:
+            os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "opencode_go"
+            default_base_url = OPENCODE_GO_DEFAULT_BASE_URL
+            default_model = OPENCODE_GO_DEFAULT_MODEL
+        elif args.lmstudio:
+            os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "lmstudio"
+            default_base_url = LM_STUDIO_DEFAULT_BASE_URL
+            default_model = LM_STUDIO_DEFAULT_MODEL
+        else:
+            os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "llama_cpp"
+            default_base_url = LLAMA_CPP_DEFAULT_BASE_URL
+            default_model = LLAMA_CPP_DEFAULT_MODEL
         if args.base_url == DEFAULT_BASE_URL:
             args.base_url = default_base_url
         if args.model == SITUATION_GEN_MODEL_DEFAULT:
