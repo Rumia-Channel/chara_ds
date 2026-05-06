@@ -353,9 +353,17 @@ def _is_lmstudio_tool_template_error(client: OpenAI, exc: BadRequestError) -> bo
 
 def make_client(base_url: str) -> OpenAI:
     base_url = _normalize_openai_base_url(base_url)
-    if os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE") == "opencode_go":
+    mode = os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE", "")
+
+    api_key: Optional[str] = None
+    if mode == "opencode_go":
         api_key = os.environ.get("OPENCODE_GO_API_KEY")
-    else:
+    elif mode == "llama_cpp":
+        api_key = os.environ.get("LLAMA_CPP_API_KEY")
+    elif mode == "lmstudio":
+        api_key = os.environ.get("LM_STUDIO_API_KEY")
+
+    if not api_key:
         api_key = (
             os.environ.get("DEEPSEEK_API_KEY")
             or os.environ.get("OPENAI_API_KEY")
