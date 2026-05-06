@@ -353,16 +353,19 @@ def _is_lmstudio_tool_template_error(client: OpenAI, exc: BadRequestError) -> bo
 
 def make_client(base_url: str) -> OpenAI:
     base_url = _normalize_openai_base_url(base_url)
-    api_key = (
-        os.environ.get("DEEPSEEK_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("LLAMA_CPP_API_KEY")
-        or os.environ.get("OPENCODE_GO_API_KEY")
-    )
+    if os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE") == "opencode_go":
+        api_key = os.environ.get("OPENCODE_GO_API_KEY")
+    else:
+        api_key = (
+            os.environ.get("DEEPSEEK_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("LLAMA_CPP_API_KEY")
+            or os.environ.get("OPENCODE_GO_API_KEY")
+        )
     if not api_key and _is_local_openai_compat_url(base_url):
         api_key = "sk-no-key-required"
     if not api_key:
-        raise RuntimeError("DEEPSEEK_API_KEY, OPENAI_API_KEY, or LLAMA_CPP_API_KEY is not set")
+        raise RuntimeError("DEEPSEEK_API_KEY, OPENAI_API_KEY, LLAMA_CPP_API_KEY, or OPENCODE_GO_API_KEY is not set")
 
     return OpenAI(api_key=api_key, base_url=base_url)
 
