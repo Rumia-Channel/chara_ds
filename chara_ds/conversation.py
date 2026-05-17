@@ -197,6 +197,7 @@ def generate_one_conversation(
     controller_client: Optional[OpenAI] = None,
     controller_model: Optional[str] = None,
     actor_client: Optional[OpenAI] = None,
+    actor_model: Optional[str] = None,
     controller_temperature: float,
     controller_top_p: float,
     persona_max_tokens: Optional[int],
@@ -656,7 +657,7 @@ def generate_one_conversation(
                     actor_result = call_actor(
                         actor_client or client,
                         prompts=prompts,
-                        model=model,
+                        model=actor_model or model,
                         speaker=speaker,
                         persona_seed=persona_seed,
                         turn_control=turn_control,
@@ -676,7 +677,7 @@ def generate_one_conversation(
                     actor_result = call_actor(
                         actor_client or client,
                         prompts=prompts,
-                        model=model,
+                        model=actor_model or model,
                         speaker=speaker,
                         persona_seed=persona_seed,
                         turn_control=turn_control,
