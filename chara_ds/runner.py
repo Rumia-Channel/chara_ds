@@ -1141,6 +1141,15 @@ def main() -> None:
     if args.plain_json_tools:
         os.environ["CHARA_DS_TOOL_MODE"] = "plain_json"
 
+    # SAKURA Kimi-K2.6 is a slow reasoning model; SAKURA's gateway may
+    # return 504.  Increase retries and backoff so transient timeouts
+    # are absorbed without failing the task.
+    if args.sakura:
+        if args.retries == 4:
+            args.retries = 8
+        if args.retry_base_sleep == 2.0:
+            args.retry_base_sleep = 5.0
+
     if args.model is None:
         args.model = FLASH_MODEL if args.flash else DEFAULT_MODEL
 

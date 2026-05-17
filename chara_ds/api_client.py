@@ -17,6 +17,7 @@ import warnings
 from urllib.parse import urlparse
 from typing import Any, Dict, Optional, Tuple
 
+import httpx
 from openai import BadRequestError, OpenAI
 
 from .io_utils import append_jsonl, clip_string, now_iso, parse_json
@@ -392,6 +393,16 @@ def make_client(base_url: str) -> OpenAI:
         api_key = "sk-no-key-required"
     if not api_key:
         raise RuntimeError("DEEPSEEK_API_KEY, SAKURA_API_KEY, OPENAI_API_KEY, LLAMA_CPP_API_KEY, or OPENCODE_GO_API_KEY is not set")
+
+    if _provider_port_for_url(base_url) == "sakura":
+        # Kimi-K2.6 is a slow reasoning model; SAKURA's gateway may
+        # return 504 if the model takes too long.  Use a generous
+        # client-side timeout to avoid premature client-side drops.
+        return OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=httpx.Timeout(600.0, connect=10.0),
+        )
 
     return OpenAI(api_key=api_key, base_url=base_url)
 
