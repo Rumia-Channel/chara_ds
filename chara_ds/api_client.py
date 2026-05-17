@@ -572,6 +572,82 @@ def _build_messages(
     ]
 
 
+def _call_sakura_json_streaming(
+    client: OpenAI,
+    *,
+    model: str,
+    system_prompt: str,
+    user_payload: Dict[str, Any],
+    max_tokens: Optional[int],
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    static_context: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
+    """Stream a JSON response from SAKURA to avoid gateway 504."""
+    messages = _build_messages(system_prompt, user_payload, static_context)
+
+    kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+    }
+    if max_tokens is not None and max_tokens > 0:
+        kwargs["max_tokens"] = max_tokens
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    if top_p is not None:
+        kwargs["top_p"] = top_p
+
+    response = client.chat.completions.create(**kwargs)
+
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    finish_reason = None
+    usage: Dict[str, Any] = {}
+
+    for chunk in response:
+        if not chunk.choices:
+            u = getattr(chunk, "usage", None)
+            if u is not None:
+                usage = usage_to_dict(u)
+            continue
+
+        delta = chunk.choices[0].delta
+
+        c = getattr(delta, "content", None) or ""
+        if c:
+            content_parts.append(c)
+
+        r = getattr(delta, "reasoning", None)
+        if r:
+            reasoning_parts.append(r)
+
+        fr = chunk.choices[0].finish_reason
+        if fr:
+            finish_reason = fr
+
+    reasoning_content = "".join(reasoning_parts) or None
+    raw_content = "".join(content_parts)
+
+    if not raw_content.strip():
+        if reasoning_content and reasoning_content.strip():
+            raw_content = reasoning_content
+        else:
+            raise ValueError(
+                "empty SAKURA streaming response "
+                f"(finish_reason={finish_reason!r}, usage={usage})"
+            )
+
+    parsed = _parse_json_or_raise(
+        text=raw_content,
+        source="sakura.streaming.content",
+        reasoning_content=reasoning_content,
+        finish_reason=finish_reason,
+        usage=usage,
+    )
+    return parsed, reasoning_content, usage, raw_content
+
+
 def call_deepseek_json(
     client: OpenAI,
     *,
@@ -585,6 +661,19 @@ def call_deepseek_json(
     top_p: Optional[float] = None,
     static_context: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
+    # SAKURA: use streaming to prevent gateway 504
+    if _is_sakura_client(client):
+        return _call_sakura_json_streaming(
+            client=client,
+            model=model,
+            system_prompt=system_prompt,
+            user_payload=user_payload,
+            static_context=static_context,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
+
     messages = _build_messages(system_prompt, user_payload, static_context)
 
     kwargs: Dict[str, Any] = {
@@ -840,6 +929,138 @@ def _call_plain_json_tool(
     )
 
 
+def _call_sakura_tool_streaming(
+    client: OpenAI,
+    *,
+    model: str,
+    system_prompt: str,
+    user_payload: Dict[str, Any],
+    tool_name: str,
+    tool_description: str,
+    tool_parameters: Dict[str, Any],
+    max_tokens: Optional[int],
+    temperature: Optional[float] = None,
+    top_p: Optional[float] = None,
+    static_context: Optional[Dict[str, Any]] = None,
+) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
+    """Stream a tool call from SAKURA to avoid gateway 504 timeouts.
+
+    SAKURA Kimi-K2.6 is slow: reasoning → output.  Non-streaming
+    requests hit SAKURA's gateway timeout.  Streaming keeps the
+    connection alive; we accumulate chunks and return the same shape
+    as the non-streaming path.
+    """
+    messages = _build_messages(system_prompt, user_payload, static_context)
+
+    function_def: Dict[str, Any] = {
+        "name": tool_name,
+        "description": tool_description,
+        "parameters": tool_parameters,
+    }
+
+    kwargs: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "tools": [{"type": "function", "function": function_def}],
+        "tool_choice": "required",
+        "stream": True,
+    }
+    if max_tokens is not None and max_tokens > 0:
+        kwargs["max_tokens"] = max_tokens
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    if top_p is not None:
+        kwargs["top_p"] = top_p
+
+    response = client.chat.completions.create(**kwargs)
+
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    tool_call_slots: Dict[int, Dict[str, Any]] = {}
+    finish_reason = None
+    usage: Dict[str, Any] = {}
+
+    for chunk in response:
+        if not chunk.choices:
+            u = getattr(chunk, "usage", None)
+            if u is not None:
+                usage = usage_to_dict(u)
+            continue
+
+        delta = chunk.choices[0].delta
+
+        c = getattr(delta, "content", None) or ""
+        if c:
+            content_parts.append(c)
+
+        r = getattr(delta, "reasoning", None)
+        if r:
+            reasoning_parts.append(r)
+
+        tcs = getattr(delta, "tool_calls", None)
+        if tcs:
+            for tc in tcs:
+                idx = getattr(tc, "index", 0) or 0
+                if idx not in tool_call_slots:
+                    tool_call_slots[idx] = {"id": "", "name": "", "args": []}
+                slot = tool_call_slots[idx]
+                tid = getattr(tc, "id", None)
+                if tid:
+                    slot["id"] = tid
+                fn = getattr(tc, "function", None)
+                if fn:
+                    nm = getattr(fn, "name", None)
+                    if nm:
+                        slot["name"] = nm
+                    args = getattr(fn, "arguments", None) or ""
+                    if args:
+                        slot["args"].append(args)
+
+        fr = chunk.choices[0].finish_reason
+        if fr:
+            finish_reason = fr
+
+    reasoning_content = "".join(reasoning_parts) or None
+
+    # Reassemble first tool call arguments
+    raw_args_json = ""
+    if tool_call_slots:
+        first_slot = tool_call_slots[min(tool_call_slots.keys())]
+        raw_args_json = "".join(first_slot.get("args", []))
+        if len(tool_call_slots) > 1:
+            warnings.warn(
+                f"SAKURA streaming returned {len(tool_call_slots)} tool_calls "
+                f"for '{tool_name}'. Using first call only.",
+                stacklevel=2,
+            )
+
+    if not raw_args_json or not raw_args_json.strip():
+        # Fallback: try content
+        body = "".join(content_parts).strip()
+        if body:
+            raw_args_json = body
+        elif reasoning_content and reasoning_content.strip():
+            raw_args_json = reasoning_content
+
+    if not raw_args_json or not raw_args_json.strip():
+        raise ValueError(
+            "empty SAKURA streaming tool_call "
+            f"(finish_reason={finish_reason!r}, "
+            f"reasoning_len={len(reasoning_content) if reasoning_content else 0}, "
+            f"usage={usage})"
+        )
+
+    parsed = _parse_tool_arguments_or_raise(
+        text=raw_args_json,
+        source="sakura.streaming.tool_call",
+        reasoning_content=reasoning_content,
+        finish_reason=finish_reason,
+        usage=usage,
+        tool_parameters=tool_parameters,
+    )
+    return parsed, reasoning_content, usage, raw_args_json
+
+
 def call_deepseek_tool(
     client: OpenAI,
     *,
@@ -866,6 +1087,24 @@ def call_deepseek_tool(
     specific function call via ``tool_choice`` so message-body JSON is not an
     escape hatch.
     """
+    # SAKURA Kimi-K2.6: use streaming to prevent gateway 504 timeouts.
+    # The model is slow (reasoning → output); streaming keeps the
+    # connection alive while SAKURA generates.
+    if _is_sakura_client(client):
+        return _call_sakura_tool_streaming(
+            client=client,
+            model=model,
+            system_prompt=system_prompt,
+            user_payload=user_payload,
+            static_context=static_context,
+            tool_name=tool_name,
+            tool_description=tool_description,
+            tool_parameters=tool_parameters,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
+
     use_plain_json = _use_plain_json_tools()
     if use_plain_json:
         return _call_plain_json_tool(
