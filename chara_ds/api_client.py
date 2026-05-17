@@ -610,6 +610,13 @@ def _call_sakura_json_streaming(
             u = getattr(chunk, "usage", None)
             if u is not None:
                 usage = usage_to_dict(u)
+
+            err = getattr(chunk, "error", None)
+            if err:
+                raise ValueError(
+                    f"SAKURA streaming error: {err} "
+                    f"(reasoning_accumulated={len(''.join(reasoning_parts))} chars)"
+                )
             continue
 
         delta = chunk.choices[0].delta
@@ -985,6 +992,14 @@ def _call_sakura_tool_streaming(
             u = getattr(chunk, "usage", None)
             if u is not None:
                 usage = usage_to_dict(u)
+
+            # SAKURA may emit error chunks mid-stream (e.g. server timeout)
+            err = getattr(chunk, "error", None)
+            if err:
+                raise ValueError(
+                    f"SAKURA streaming error: {err} "
+                    f"(reasoning_accumulated={len(''.join(reasoning_parts))} chars)"
+                )
             continue
 
         delta = chunk.choices[0].delta
