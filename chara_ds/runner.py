@@ -1078,6 +1078,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--all-deepseek",
+        action="store_true",
+        help="Shortcut: use DeepSeek for ALL agents regardless of main provider.",
+    )
+    parser.add_argument(
         "--conversation-audit",
         action="store_true",
         help="After generation, audit the full conversation and store conversation_audit in the record.",
@@ -1328,6 +1333,15 @@ def main() -> None:
 
     if args.sakura_base_url.rstrip("/").endswith("/chat/completions"):
         args.sakura_base_url = args.sakura_base_url.rstrip("/")[: -len("/chat/completions")]
+
+    # --all-deepseek: shortcut to route every agent to DeepSeek.
+    if args.all_deepseek:
+        args.persona_provider = "deepseek"
+        args.control_provider = "deepseek"
+        args.actor_provider = "deepseek"
+        if not args.guard_provider:
+            args.guard_provider = "deepseek"
+        args.conversation_audit_provider = "deepseek"
 
     # Guard provider: --guard-provider > --control-provider > --sakura-guard (back compat)
     if args.guard_provider:
