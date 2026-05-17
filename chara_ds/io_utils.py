@@ -9,7 +9,7 @@ import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from .config import PersonaLine, PromptBundle
 from .norms import hash_norm_source, load_norm_index
@@ -120,8 +120,56 @@ def parse_json(text: str) -> Dict[str, Any]:
         start = cleaned.find("{")
         end = cleaned.rfind("}")
         if start >= 0 and end > start:
-            return json.loads(cleaned[start:end + 1])
-        raise
+            try:
+                return json.loads(cleaned[start:end + 1])
+            except json.JSONDecodeError:
+                pass
+
+    # DeepSeek sometimes produces JSON with missing commas between
+    # values.  Try heuristic repair before giving up.
+    repaired = _repair_json_syntax(cleaned)
+    if repaired is not None:
+        try:
+            return json.loads(repaired)
+        except json.JSONDecodeError:
+            pass
+
+    raise
+
+
+def _repair_json_syntax(text: str) -> Optional[str]:
+    """Heuristically repair common LLM JSON syntax errors.
+
+    Returns repaired text or None if repair seems unsafe.
+    """
+    import re
+
+    result = text
+
+    # (1) Missing comma between two strings: "val1" "val2" -> "val1", "val2"
+    result = re.sub(r'"\s*\n?\s*"', '", "', result)
+
+    # (2) Missing comma between closed bracket and string: }" or ]" -> }, " or ], "
+    result = re.sub(r'([}\]])\s*\n?\s*"', r'\1, "', result)
+
+    # (3) Missing comma between string and open bracket: "\s*{ -> ", {
+    result = re.sub(r'"\s*\n?\s*{', '", {', result)
+
+    # (4) Missing comma between closed bracket and open bracket: }\s*{ -> }, {
+    result = re.sub(r'([}\]])\s*\n?\s*{', r'\1, {', result)
+
+    # (5) Missing comma between number and string: 123 "val" -> 123, "val"
+    result = re.sub(r'(\d)\s*\n?\s*"', r'\1, "', result)
+
+    # (6) Missing comma between string and number: "val"\s*\d -> "val", 2...
+    result = re.sub(r'"\s*\n?\s*(\d)', r'", \1', result)
+
+    # (7) Missing comma between ] and [
+    result = re.sub(r']\s*\n?\s*\[', '], [', result)
+
+    if result == text:
+        return None
+    return result
 
 
 def safe_mkdir_for_file(path: str) -> None:
