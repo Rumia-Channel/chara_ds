@@ -528,12 +528,12 @@ def run_one_conversation_task(
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
             actor_guard_provider=args.actor_guard_provider,
-            actor_guard_client=sakura_client if args.actor_guard_provider == "sakura" else None,
+            actor_guard_client=sakura_client if args.actor_guard_provider == "sakura" else (controller_client if args.actor_guard_provider == "deepseek" else None),
             actor_guard_thinking_enabled=actor_guard_thinking_enabled,
             conversation_audit_enabled=args.conversation_audit,
             conversation_audit_model=args.conversation_audit_model,
             conversation_audit_provider=args.conversation_audit_provider,
-            conversation_audit_client=sakura_client if args.conversation_audit_provider == "sakura" else None,
+            conversation_audit_client=sakura_client if args.conversation_audit_provider == "sakura" else (controller_client if args.conversation_audit_provider == "deepseek" else None),
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=persona_max_tokens_val,
@@ -673,12 +673,12 @@ def rewrite_one_conversation_task(
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
             actor_guard_provider=args.actor_guard_provider,
-            actor_guard_client=sakura_client if args.actor_guard_provider == "sakura" else None,
+            actor_guard_client=sakura_client if args.actor_guard_provider == "sakura" else (controller_client if args.actor_guard_provider == "deepseek" else None),
             actor_guard_thinking_enabled=actor_guard_thinking_enabled,
             conversation_audit_enabled=args.conversation_audit,
             conversation_audit_model=args.conversation_audit_model,
             conversation_audit_provider=args.conversation_audit_provider,
-            conversation_audit_client=sakura_client if args.conversation_audit_provider == "sakura" else None,
+            conversation_audit_client=sakura_client if args.conversation_audit_provider == "sakura" else (controller_client if args.conversation_audit_provider == "deepseek" else None),
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=persona_max_tokens_val,
@@ -805,12 +805,12 @@ def finish_one_conversation_task(
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
             actor_guard_provider=args.actor_guard_provider,
-            actor_guard_client=sakura_client if args.actor_guard_provider == "sakura" else None,
+            actor_guard_client=sakura_client if args.actor_guard_provider == "sakura" else (controller_client if args.actor_guard_provider == "deepseek" else None),
             actor_guard_thinking_enabled=actor_guard_thinking_enabled,
             conversation_audit_enabled=args.conversation_audit,
             conversation_audit_model=args.conversation_audit_model,
             conversation_audit_provider=args.conversation_audit_provider,
-            conversation_audit_client=sakura_client if args.conversation_audit_provider == "sakura" else None,
+            conversation_audit_client=sakura_client if args.conversation_audit_provider == "sakura" else (controller_client if args.conversation_audit_provider == "deepseek" else None),
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=persona_max_tokens_val,
@@ -1083,6 +1083,17 @@ def parse_args() -> argparse.Namespace:
         help="After generation, audit the full conversation and store conversation_audit in the record.",
     )
     parser.add_argument(
+        "--guard-provider",
+        choices=["deepseek", "sakura"],
+        default=None,
+        help=(
+            "Provider for actor guard. "
+            "deepseek uses DEEPSEEK_API_KEY. "
+            "sakura uses SAKURA_API_KEY. "
+            "Unset uses --control-provider (or --sakura-guard for backward compat)."
+        ),
+    )
+    parser.add_argument(
         "--conversation-audit-provider",
         choices=["deepseek", "sakura"],
         default="deepseek",
@@ -1318,9 +1329,20 @@ def main() -> None:
     if args.sakura_base_url.rstrip("/").endswith("/chat/completions"):
         args.sakura_base_url = args.sakura_base_url.rstrip("/")[: -len("/chat/completions")]
 
-    args.actor_guard_provider = "sakura" if args.sakura_guard else "deepseek"
+    # Guard provider: --guard-provider > --control-provider > --sakura-guard (back compat)
+    if args.guard_provider:
+        args.actor_guard_provider = args.guard_provider
+    elif args.control_provider:
+        args.actor_guard_provider = args.control_provider
+    else:
+        args.actor_guard_provider = "sakura" if args.sakura_guard else "deepseek"
     if args.sakura_guard:
         args.actor_guard_model = args.sakura_guard_model
+
+    # Audit provider: --conversation-audit-provider > --control-provider
+    if args.control_provider and args.conversation_audit_provider == "deepseek":
+        args.conversation_audit_provider = args.control_provider
+
     if args.conversation_audit_model is None:
         args.conversation_audit_model = (
             args.sakura_guard_model
