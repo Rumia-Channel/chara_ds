@@ -192,6 +192,8 @@ def generate_one_conversation(
     conversation_audit_model: str,
     conversation_audit_provider: str,
     conversation_audit_client: Optional[OpenAI],
+    persona_client: Optional[OpenAI] = None,
+    persona_model: Optional[str] = None,
     controller_temperature: float,
     controller_top_p: float,
     persona_max_tokens: Optional[int],
@@ -463,9 +465,9 @@ def generate_one_conversation(
 
         persona_content, persona_reasoning, persona_usage, persona_raw = call_with_retries(
             lambda: call_persona_controller(
-                client,
+                persona_client or client,
                 prompts=prompts,
-                model=model,
+                model=persona_model or model,
                 source_info=source_info,
                 user_txt=persona_line.text,
                 conversation_id=conversation_id,
