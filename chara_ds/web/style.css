@@ -218,6 +218,82 @@ html, body {
   border-color: var(--accent);
 }
 
+/* ---- Mode tabs (Timeline / Agent Stream) ---- */
+.timeline-mode-tabs {
+  display: flex;
+  gap: 2px;
+}
+.mode-tab {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  transition: background 0.12s, color 0.12s;
+}
+.mode-tab:first-child { border-radius: 6px 0 0 6px; }
+.mode-tab:last-child  { border-radius: 0 6px 6px 0; }
+.mode-tab:hover { color: var(--fg); }
+.mode-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+}
+
+/* ---- Agent Stream ---- */
+.stream-entry {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0 0 8px 0;
+  overflow: hidden;
+}
+
+.stream-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,0.015);
+}
+
+.stream-cid {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.stream-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--fg-dim);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.stream-body {
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
 .active-card .ac-id {
   font-family: var(--mono);
   font-size: 11px;

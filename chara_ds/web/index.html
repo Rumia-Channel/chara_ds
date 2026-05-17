@@ -46,10 +46,21 @@
 
     <section class="col col-timeline">
       <div class="section-head">
-        <h2>Public timeline</h2>
+        <div class="timeline-mode-tabs">
+          <button class="mode-tab active" data-mode="timeline">Timeline</button>
+          <button class="mode-tab" data-mode="agent_stream">Agent Stream</button>
+        </div>
         <div class="timeline-controls">
           <select id="timeline-select" class="timeline-select" title="Select conversation">
             <option value="__latest__">Latest update</option>
+          </select>
+          <select id="agent-stream-agent" class="timeline-select" title="Select agent" hidden>
+            <option value="persona">Persona Controller</option>
+            <option value="grand_controller">Grand Controller</option>
+            <option value="controller">Turn Controller</option>
+            <option value="actor">Actor</option>
+            <option value="actor_guard">Actor Guard</option>
+            <option value="conversation_audit">Auditor</option>
           </select>
           <span class="count" id="timeline-count">0</span>
         </div>

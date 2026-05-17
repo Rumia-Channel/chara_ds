@@ -9,6 +9,8 @@ let activeTab = "actor";
 let lastTimelineLen = 0;
 let selectedConversation = "__latest__";
 let lastSelectedConversation = "__latest__";
+let timelineMode = "timeline";       // "timeline" | "agent_stream"
+let agentStreamAgent = "actor";      // agent_key for the stream
 const openAgentDetails = new Set();
 
 // Completed-tab state
@@ -39,6 +41,24 @@ $("ui-pause-toggle").addEventListener("change", (e) => {
 
 $("timeline-select").addEventListener("change", (e) => {
   selectedConversation = e.target.value || "__latest__";
+  lastTimelineLen = 0;
+  refresh();
+});
+
+// Mode tabs: switch between Timeline and Agent Stream
+document.querySelectorAll(".mode-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mode-tab").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    timelineMode = btn.dataset.mode;
+    $("agent-stream-agent").hidden = timelineMode !== "agent_stream";
+    lastTimelineLen = 0;
+    refresh();
+  });
+});
+
+$("agent-stream-agent").addEventListener("change", (e) => {
+  agentStreamAgent = e.target.value;
   lastTimelineLen = 0;
   refresh();
 });
@@ -573,6 +593,11 @@ function renderTimelineMessages(items, container) {
 }
 
 function renderTimeline(state) {
+  if (timelineMode === "agent_stream") {
+    renderAgentStream(state);
+    return;
+  }
+
   const tl = $("timeline");
   let items;
   let sourceLabel;
@@ -609,6 +634,80 @@ function renderTimeline(state) {
 
   if (wasAtBottom) tl.scrollTop = tl.scrollHeight;
   lastTimelineLen = items.length;
+  lastSelectedConversation = selectedConversation;
+}
+
+function renderAgentStream(state) {
+  const container = $("timeline");
+  const active = state.active || {};
+  let entries = [];
+
+  if (selectedConversation === "__latest__") {
+    // Collect from all active conversations, sorted by time
+    const allIds = Object.keys(active).sort();
+    for (const id of allIds) {
+      const hist = ((active[id] || {}).agent_history || {})[agentStreamAgent] || [];
+      for (const entry of hist) {
+        entries.push({ cid: id, entry });
+      }
+    }
+    $("timeline-count").textContent = entries.length;
+  } else {
+    const slot = active[selectedConversation] || {};
+    const hist = (slot.agent_history || {})[agentStreamAgent] || [];
+    entries = hist.map((entry) => ({ cid: selectedConversation, entry }));
+    $("timeline-count").textContent = entries.length;
+  }
+
+  const switched = selectedConversation !== lastSelectedConversation;
+  const wasAtBottom =
+    switched ||
+    container.scrollHeight - container.scrollTop - container.clientHeight < 40 ||
+    entries.length !== lastTimelineLen;
+
+  if (entries.length === 0) {
+    container.innerHTML = "";
+    const d = document.createElement("div");
+    d.className = "empty";
+    const agentLabel = $("agent-stream-agent").selectedOptions[0]?.textContent || agentStreamAgent;
+    d.textContent = "no " + agentLabel + " responses yet" +
+      (selectedConversation !== "__latest__" ? " (" + selectedConversation + ")" : "");
+    container.appendChild(d);
+    lastSelectedConversation = selectedConversation;
+    lastTimelineLen = 0;
+    return;
+  }
+
+  container.innerHTML = "";
+  entries.forEach(({ cid, entry }, idx) => {
+    const div = document.createElement("div");
+    div.className = "stream-entry";
+
+    const head = document.createElement("div");
+    head.className = "stream-head";
+
+    const cidSpan = document.createElement("span");
+    cidSpan.className = "stream-cid";
+    cidSpan.textContent = cid;
+    head.appendChild(cidSpan);
+
+    const labelSpan = document.createElement("span");
+    labelSpan.className = "stream-label";
+    labelSpan.textContent = entryLabel(entry, idx);
+    head.appendChild(labelSpan);
+
+    div.appendChild(head);
+
+    const body = document.createElement("pre");
+    body.className = "stream-body";
+    body.textContent = fmtJSON(entry.content ?? entry);
+    div.appendChild(body);
+
+    container.appendChild(div);
+  });
+
+  if (wasAtBottom) container.scrollTop = container.scrollHeight;
+  lastTimelineLen = entries.length;
   lastSelectedConversation = selectedConversation;
 }
 
