@@ -389,7 +389,7 @@ def get_optional_sakura_client(args: argparse.Namespace):
 
 def get_persona_client(args: argparse.Namespace):
     """Return a dedicated client for persona controller, or None to use main."""
-    provider = args.persona_provider
+    provider = args.persona_provider or args.control_provider
     if not provider:
         return None
     if provider == "deepseek":
@@ -498,7 +498,7 @@ def run_one_conversation_task(
         return args.model, thinking_def, args.persona_max_tokens
 
     persona_model, persona_thinking, persona_max_tokens_val = _ps(
-        args.persona_provider, persona_thinking_enabled,
+        args.persona_provider or args.control_provider, persona_thinking_enabled,
     )
     controller_model, controller_thinking, controller_max_tokens_val = _ps(
         args.control_provider, turn_controller_thinking_enabled,
