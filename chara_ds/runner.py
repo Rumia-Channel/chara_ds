@@ -35,7 +35,6 @@ from .config import (
     SAKURA_DEFAULT_BASE_URL,
     SAKURA_DEFAULT_MODEL,
     SAKURA_GUARD_MODEL,
-    SAKURA_MAX_OUTPUT_TOKENS,
 )
 from .conversation import estimate_ending_pacing_floor, generate_one_conversation
 from .io_utils import (
@@ -1096,17 +1095,19 @@ def main() -> None:
             os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "sakura"
             default_base_url = SAKURA_DEFAULT_BASE_URL
             default_model = SAKURA_DEFAULT_MODEL
-            # Kimi-K2.6 max_total_tokens=262144 via SAKURA.
+            # SAKURA: omit max_tokens; API manages limit automatically.
+            # max_total_tokens=262144, but explicit max_tokens can collide
+            # with prompt size. 0 means "do not send to API".
             if args.persona_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
-                args.persona_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+                args.persona_max_tokens = 0
             if args.controller_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
-                args.controller_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+                args.controller_max_tokens = 0
             if args.actor_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
-                args.actor_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+                args.actor_max_tokens = 0
             if args.actor_guard_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
-                args.actor_guard_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+                args.actor_guard_max_tokens = 0
             if args.situation_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
-                args.situation_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+                args.situation_max_tokens = 0
         elif args.opencode_go:
             os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "opencode_go"
             default_base_url = OPENCODE_GO_DEFAULT_BASE_URL

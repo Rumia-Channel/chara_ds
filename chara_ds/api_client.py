@@ -992,7 +992,8 @@ def call_deepseek_tool(
             if _is_sakura_client(client) and reasoning_content and body_len == 0:
                 hint = (
                     " SAKURA likely consumed all tokens for reasoning; "
-                    "try increasing max_tokens."
+                    "try increasing max_tokens. Note: SAKURA max_total_tokens=262144 "
+                    "(prompt + max_tokens)."
                 )
             raise ValueError(
                 "missing forced tool_call arguments "

@@ -9,7 +9,6 @@ PRO_MODEL = "deepseek-v4-pro"
 FLASH_MODEL = "deepseek-v4-flash"
 DEFAULT_MODEL = PRO_MODEL
 DEEPSEEK_V4_MAX_OUTPUT_TOKENS = 384_000
-SAKURA_MAX_OUTPUT_TOKENS = 262_144  # max_model_len for Kimi-K2.6
 SAKURA_DEFAULT_BASE_URL = "https://api.ai.sakura.ad.jp/v1"
 SAKURA_DEFAULT_MODEL = "preview/Kimi-K2.6"
 SAKURA_GUARD_MODEL = "gpt-oss-120b"
