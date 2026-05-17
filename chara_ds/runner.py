@@ -407,6 +407,46 @@ def get_persona_client(args: argparse.Namespace):
     return None
 
 
+def get_controller_client(args: argparse.Namespace):
+    """Return a dedicated client for grand+turn controller, or None."""
+    provider = args.control_provider
+    if not provider:
+        return None
+    if provider == "deepseek":
+        return get_thread_env_client(
+            name="controller_deepseek",
+            api_key_env="DEEPSEEK_API_KEY",
+            base_url=DEFAULT_BASE_URL,
+        )
+    if provider == "sakura":
+        return get_thread_env_client(
+            name="controller_sakura",
+            api_key_env="SAKURA_API_KEY",
+            base_url=args.sakura_base_url,
+        )
+    return None
+
+
+def get_actor_client(args: argparse.Namespace):
+    """Return a dedicated client for actor, or None."""
+    provider = args.actor_provider
+    if not provider:
+        return None
+    if provider == "deepseek":
+        return get_thread_env_client(
+            name="actor_deepseek",
+            api_key_env="DEEPSEEK_API_KEY",
+            base_url=DEFAULT_BASE_URL,
+        )
+    if provider == "sakura":
+        return get_thread_env_client(
+            name="actor_sakura",
+            api_key_env="SAKURA_API_KEY",
+            base_url=args.sakura_base_url,
+        )
+    return None
+
+
 def run_one_conversation_task(
     *,
     idx0: int,
@@ -445,19 +485,27 @@ def run_one_conversation_task(
     client = get_thread_client(args.base_url)
     sakura_client = get_optional_sakura_client(args)
     persona_client = get_persona_client(args)
+    controller_client = get_controller_client(args)
+    actor_client = get_actor_client(args)
 
-    # Persona provider overrides: use dedicated model/thinking when
-    # persona provider differs from main provider.
-    persona_model = args.model
-    persona_thinking = persona_thinking_enabled
-    persona_max_tokens_val = args.persona_max_tokens
-    if args.persona_provider == "deepseek":
-        persona_model = PRO_MODEL
-        persona_thinking = True
-        persona_max_tokens_val = DEEPSEEK_V4_MAX_OUTPUT_TOKENS
-    elif args.persona_provider == "sakura":
-        persona_thinking = False
-        persona_max_tokens_val = 0  # omit
+    # --- Per-agent provider overrides ---
+    def _ps(prov, thinking_def):
+        """Return (model, thinking, max_tokens) for a provider override."""
+        if prov == "deepseek":
+            return PRO_MODEL, True, DEEPSEEK_V4_MAX_OUTPUT_TOKENS
+        if prov == "sakura":
+            return SAKURA_DEFAULT_MODEL, False, 0
+        return args.model, thinking_def, args.persona_max_tokens
+
+    persona_model, persona_thinking, persona_max_tokens_val = _ps(
+        args.persona_provider, persona_thinking_enabled,
+    )
+    controller_model, controller_thinking, controller_max_tokens_val = _ps(
+        args.control_provider, turn_controller_thinking_enabled,
+    )
+    actor_model, actor_thinking, actor_max_tokens_val = _ps(
+        args.actor_provider, actor_thinking_enabled,
+    )
 
     try:
         record = generate_one_conversation(
@@ -472,11 +520,11 @@ def run_one_conversation_task(
             max_turns=args.max_turns,
             seed=args.seed,
             reasoning_effort=args.reasoning_effort,
-            persona_thinking_enabled=persona_thinking_enabled,
-            turn_controller_thinking_enabled=turn_controller_thinking_enabled,
+            persona_thinking_enabled=persona_thinking,
+            turn_controller_thinking_enabled=controller_thinking,
             state_memory_tool_enabled=not args.disable_state_memory_tool,
             resume_accept_stale_cache=args.resume_accept_stale_cache,
-            actor_thinking_enabled=actor_thinking_enabled,
+            actor_thinking_enabled=actor_thinking,
             actor_guard_enabled=actor_guard_enabled,
             actor_guard_model=args.actor_guard_model,
             actor_guard_provider=args.actor_guard_provider,
@@ -489,8 +537,8 @@ def run_one_conversation_task(
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=persona_max_tokens_val,
-            controller_max_tokens=args.controller_max_tokens,
-            actor_max_tokens=args.actor_max_tokens,
+            controller_max_tokens=controller_max_tokens_val,
+            actor_max_tokens=actor_max_tokens_val,
             actor_guard_max_tokens=args.actor_guard_max_tokens,
             keep_raw_content=args.keep_raw_content,
             errors_out=errors_out,
@@ -501,6 +549,10 @@ def run_one_conversation_task(
             backup_existing_cache=not args.no_turn_cache_backup,
             persona_client=persona_client,
             persona_model=persona_model,
+            controller_client=controller_client,
+            controller_model=controller_model,
+            actor_client=actor_client,
+            actor_model=actor_model,
         )
         return {
             "ok": True,
@@ -584,17 +636,19 @@ def rewrite_one_conversation_task(
     client = get_thread_client(args.base_url)
     sakura_client = get_optional_sakura_client(args)
     persona_client = get_persona_client(args)
+    controller_client = get_controller_client(args)
+    actor_client = get_actor_client(args)
 
-    persona_model = args.model
-    persona_thinking = persona_thinking_enabled
-    persona_max_tokens_val = args.persona_max_tokens
-    if args.persona_provider == "deepseek":
-        persona_model = PRO_MODEL
-        persona_thinking = True
-        persona_max_tokens_val = DEEPSEEK_V4_MAX_OUTPUT_TOKENS
-    elif args.persona_provider == "sakura":
-        persona_thinking = False
-        persona_max_tokens_val = 0  # omit
+    def _ps(prov, thinking_def):
+        if prov == "deepseek":
+            return PRO_MODEL, True, DEEPSEEK_V4_MAX_OUTPUT_TOKENS
+        if prov == "sakura":
+            return SAKURA_DEFAULT_MODEL, False, 0
+        return args.model, thinking_def, args.persona_max_tokens
+
+    persona_model, persona_thinking, persona_max_tokens_val = _ps(args.persona_provider, persona_thinking_enabled)
+    controller_model, controller_thinking, controller_max_tokens_val = _ps(args.control_provider, turn_controller_thinking_enabled)
+    actor_model, actor_thinking, actor_max_tokens_val = _ps(args.actor_provider, actor_thinking_enabled)
 
     try:
         if cache_dir and args.delete_turn_cache_on_success:
@@ -628,8 +682,8 @@ def rewrite_one_conversation_task(
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=persona_max_tokens_val,
-            controller_max_tokens=args.controller_max_tokens,
-            actor_max_tokens=args.actor_max_tokens,
+            controller_max_tokens=controller_max_tokens_val,
+            actor_max_tokens=actor_max_tokens_val,
             actor_guard_max_tokens=args.actor_guard_max_tokens,
             keep_raw_content=args.keep_raw_content,
             errors_out=errors_out,
@@ -640,6 +694,10 @@ def rewrite_one_conversation_task(
             conversation_id_override=conversation_id,
             persona_client=persona_client,
             persona_model=persona_model,
+            controller_client=controller_client,
+            controller_model=controller_model,
+            actor_client=actor_client,
+            actor_model=actor_model,
         )
         return {
             "ok": True,
@@ -712,17 +770,19 @@ def finish_one_conversation_task(
     client = get_thread_client(args.base_url)
     sakura_client = get_optional_sakura_client(args)
     persona_client = get_persona_client(args)
+    controller_client = get_controller_client(args)
+    actor_client = get_actor_client(args)
 
-    persona_model = args.model
-    persona_thinking = persona_thinking_enabled
-    persona_max_tokens_val = args.persona_max_tokens
-    if args.persona_provider == "deepseek":
-        persona_model = PRO_MODEL
-        persona_thinking = True
-        persona_max_tokens_val = DEEPSEEK_V4_MAX_OUTPUT_TOKENS
-    elif args.persona_provider == "sakura":
-        persona_thinking = False
-        persona_max_tokens_val = 0  # omit
+    def _ps(prov, thinking_def):
+        if prov == "deepseek":
+            return PRO_MODEL, True, DEEPSEEK_V4_MAX_OUTPUT_TOKENS
+        if prov == "sakura":
+            return SAKURA_DEFAULT_MODEL, False, 0
+        return args.model, thinking_def, args.persona_max_tokens
+
+    persona_model, persona_thinking, persona_max_tokens_val = _ps(args.persona_provider, persona_thinking_enabled)
+    controller_model, controller_thinking, controller_max_tokens_val = _ps(args.control_provider, turn_controller_thinking_enabled)
+    actor_model, actor_thinking, actor_max_tokens_val = _ps(args.actor_provider, actor_thinking_enabled)
 
     try:
         extended = generate_one_conversation(
@@ -754,8 +814,8 @@ def finish_one_conversation_task(
             controller_temperature=args.controller_temperature,
             controller_top_p=args.controller_top_p,
             persona_max_tokens=persona_max_tokens_val,
-            controller_max_tokens=args.controller_max_tokens,
-            actor_max_tokens=args.actor_max_tokens,
+            controller_max_tokens=controller_max_tokens_val,
+            actor_max_tokens=actor_max_tokens_val,
             actor_guard_max_tokens=args.actor_guard_max_tokens,
             keep_raw_content=args.keep_raw_content,
             errors_out=errors_out,
@@ -767,6 +827,10 @@ def finish_one_conversation_task(
             target_turns_override=args.finish_min_turns,
             persona_client=persona_client,
             persona_model=persona_model,
+            controller_client=controller_client,
+            controller_model=controller_model,
+            actor_client=actor_client,
+            actor_model=actor_model,
         )
         return {
             "ok": True,
@@ -989,6 +1053,28 @@ def parse_args() -> argparse.Namespace:
             "deepseek uses DEEPSEEK_API_KEY and the DeepSeek beta endpoint. "
             "sakura uses SAKURA_API_KEY. "
             "Unset (default) uses the main provider."
+        ),
+    )
+    parser.add_argument(
+        "--control-provider",
+        choices=["deepseek", "sakura"],
+        default=None,
+        help=(
+            "Provider for grand controller + turn controller. "
+            "deepseek uses DEEPSEEK_API_KEY and the DeepSeek beta endpoint. "
+            "Unset uses the main provider. Overrides --persona-provider "
+            "for controllers if set."
+        ),
+    )
+    parser.add_argument(
+        "--actor-provider",
+        choices=["deepseek", "sakura"],
+        default=None,
+        help=(
+            "Provider for actor generation. "
+            "deepseek uses DEEPSEEK_API_KEY. "
+            "sakura uses SAKURA_API_KEY. "
+            "Unset uses the main provider."
         ),
     )
     parser.add_argument(
@@ -1378,9 +1464,11 @@ def main() -> None:
                 cache_dir=cache_dir,
                 args=args,
                 prompts=prompts,
-                persona_thinking_enabled=persona_thinking_enabled,
-                turn_controller_thinking_enabled=turn_controller_thinking_enabled,
-                actor_thinking_enabled=actor_thinking_enabled,
+            persona_thinking_enabled=persona_thinking,
+            turn_controller_thinking_enabled=controller_thinking,
+            state_memory_tool_enabled=not args.disable_state_memory_tool,
+            resume_accept_stale_cache=args.resume_accept_stale_cache,
+            actor_thinking_enabled=actor_thinking,
                 actor_guard_enabled=args.actor_guard,
                 actor_guard_thinking_enabled=actor_guard_thinking_enabled,
                 backup_existing_cache=not args.no_turn_cache_backup,

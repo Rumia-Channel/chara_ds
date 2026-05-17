@@ -194,6 +194,9 @@ def generate_one_conversation(
     conversation_audit_client: Optional[OpenAI],
     persona_client: Optional[OpenAI] = None,
     persona_model: Optional[str] = None,
+    controller_client: Optional[OpenAI] = None,
+    controller_model: Optional[str] = None,
+    actor_client: Optional[OpenAI] = None,
     controller_temperature: float,
     controller_top_p: float,
     persona_max_tokens: Optional[int],
@@ -554,9 +557,9 @@ def generate_one_conversation(
 
             grand_content, grand_reasoning, grand_usage, grand_raw = call_with_retries(
                 lambda: call_grand_controller(
-                    client,
+                    controller_client or client,
                     prompts=prompts,
-                    model=model,
+                    model=controller_model or model,
                     conversation_id=conversation_id,
                     persona_seed=persona_seed,
                     public_timeline=public_timeline,
@@ -592,9 +595,9 @@ def generate_one_conversation(
 
             controller_content, controller_reasoning, controller_usage, controller_raw = call_with_retries(
                 lambda: call_turn_controller(
-                    client,
+                    controller_client or client,
                     prompts=prompts,
-                    model=model,
+                    model=controller_model or model,
                     conversation_id=conversation_id,
                     persona_seed=persona_seed,
                     public_timeline=public_timeline,
@@ -651,7 +654,7 @@ def generate_one_conversation(
             def generate_actor_and_guard():
                 if not actor_guard_enabled:
                     actor_result = call_actor(
-                        client,
+                        actor_client or client,
                         prompts=prompts,
                         model=model,
                         speaker=speaker,
@@ -671,7 +674,7 @@ def generate_one_conversation(
 
                 for guard_round in range(1, 3):
                     actor_result = call_actor(
-                        client,
+                        actor_client or client,
                         prompts=prompts,
                         model=model,
                         speaker=speaker,
