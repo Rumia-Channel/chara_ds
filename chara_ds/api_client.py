@@ -13,6 +13,7 @@ import re
 import threading
 import time
 import traceback
+import warnings
 from urllib.parse import urlparse
 from typing import Any, Dict, Optional, Tuple
 
@@ -203,10 +204,6 @@ def _is_local_openai_compat_url(base_url: str) -> bool:
     return host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
 
-def _is_local_openai_compat_client(client: OpenAI) -> bool:
-    return _is_local_openai_compat_url(str(getattr(client, "base_url", "")))
-
-
 def _provider_port_for_url(base_url: str) -> str:
     """Classify provider behavior while keeping the public client generic."""
 
@@ -227,6 +224,8 @@ def _provider_port_for_url(base_url: str) -> str:
         return "deepseek"
     if host.endswith("openai.com"):
         return "openai"
+    if host.endswith("sakura.ad.jp"):
+        return "sakura"
     return "openai_compat"
 
 
@@ -242,6 +241,10 @@ def _is_opencode_go_client(client: OpenAI) -> bool:
     return os.environ.get("CHARA_DS_OPENAI_COMPAT_MODE") == "opencode_go"
 
 
+def _is_sakura_client(client: OpenAI) -> bool:
+    return _provider_port_for_client(client) == "sakura"
+
+
 def _use_plain_json_tools() -> bool:
     return os.environ.get("CHARA_DS_TOOL_MODE") == "plain_json"
 
@@ -251,7 +254,7 @@ def _supports_strict_tools(client: OpenAI) -> bool:
         return True
     if os.environ.get("CHARA_DS_TOOL_STRICT") == "0":
         return False
-    return not _is_local_openai_compat_client(client) and not _is_opencode_go_client(client)
+    return _is_deepseek_client(client)
 
 
 def _force_tool_choice_candidates(client: OpenAI, tool_name: str) -> list[Any]:
@@ -269,6 +272,13 @@ def _force_tool_choice_candidates(client: OpenAI, tool_name: str) -> list[Any]:
         # DeepSeek reasoner rejects specific function forcing; Go proxies to
         # DeepSeek and other reasoner-class models with the same limitation.
         return ["auto"]
+
+    if _is_sakura_client(client):
+        # SAKURA Kimi-K2.6: "required" works reliably and returns
+        # finish_reason="tool_calls".  The object form
+        # {"type":"function","function":{"name":"..."}} also works but
+        # returns finish_reason="stop" which is less informative.
+        return ["required"]
 
     # LM Studio documents string tool_choice values, and llama.cpp builds can
     # reject the OpenAI object form. Because we send exactly one tool, "required"
@@ -288,6 +298,11 @@ def _allow_tool_content_fallback(client: OpenAI) -> bool:
     # DeepSeek's thinking/tool behavior can put useful structured output into
     # content or reasoning. For generic OpenAI-compatible providers, accepting
     # content hides broken tool calling, so fail loudly instead.
+    #
+    # SAKURA Kimi-K2.6: reliably returns proper tool_calls with
+    # tool_choice="required".  Its "reasoning" field contains free-form
+    # thinking text, not structured JSON, so raw-content parsing would be
+    # counter-productive.
     return _is_deepseek_client(client)
 
 
@@ -362,10 +377,13 @@ def make_client(base_url: str) -> OpenAI:
         api_key = os.environ.get("LLAMA_CPP_API_KEY")
     elif mode == "lmstudio":
         api_key = os.environ.get("LM_STUDIO_API_KEY")
+    elif mode == "sakura":
+        api_key = os.environ.get("SAKURA_API_KEY")
 
     if not api_key:
         api_key = (
             os.environ.get("DEEPSEEK_API_KEY")
+            or os.environ.get("SAKURA_API_KEY")
             or os.environ.get("OPENAI_API_KEY")
             or os.environ.get("LLAMA_CPP_API_KEY")
             or os.environ.get("OPENCODE_GO_API_KEY")
@@ -373,7 +391,7 @@ def make_client(base_url: str) -> OpenAI:
     if not api_key and _is_local_openai_compat_url(base_url):
         api_key = "sk-no-key-required"
     if not api_key:
-        raise RuntimeError("DEEPSEEK_API_KEY, OPENAI_API_KEY, LLAMA_CPP_API_KEY, or OPENCODE_GO_API_KEY is not set")
+        raise RuntimeError("DEEPSEEK_API_KEY, SAKURA_API_KEY, OPENAI_API_KEY, LLAMA_CPP_API_KEY, or OPENCODE_GO_API_KEY is not set")
 
     return OpenAI(api_key=api_key, base_url=base_url)
 
@@ -405,10 +423,7 @@ def _apply_chat_controls(
     field unless plain-json fallback mode is explicitly enabled.
     """
 
-    supports_deepseek_extras = (
-        not _is_local_openai_compat_client(client)
-        and not _is_opencode_go_client(client)
-    )
+    supports_deepseek_extras = _is_deepseek_client(client)
 
     if thinking_enabled and supports_deepseek_extras:
         kwargs["reasoning_effort"] = reasoning_effort
@@ -450,14 +465,23 @@ def get_reasoning_content(message: Any) -> Optional[str]:
     if direct:
         return direct
 
+    direct = getattr(message, "reasoning", None)
+    if direct:
+        return direct
+
     extra = getattr(message, "model_extra", None)
-    if isinstance(extra, dict) and extra.get("reasoning_content"):
-        return extra["reasoning_content"]
+    if isinstance(extra, dict):
+        if extra.get("reasoning_content"):
+            return extra["reasoning_content"]
+        if extra.get("reasoning"):
+            return extra["reasoning"]
 
     try:
         dumped = message.model_dump()
         if dumped.get("reasoning_content"):
             return dumped["reasoning_content"]
+        if dumped.get("reasoning"):
+            return dumped["reasoning"]
     except Exception:
         pass
 
@@ -868,7 +892,9 @@ def call_deepseek_tool(
         "messages": messages,
         "tools": tools,
     }
-    if not _is_deepseek_client(client):
+    if not _is_deepseek_client(client) and not _is_sakura_client(client):
+        # SAKURA ignores parallel_tool_calls; setting it is noise.
+        # llama.cpp / LM Studio may honour it.
         kwargs_base["parallel_tool_calls"] = False
 
     if max_tokens is not None and max_tokens > 0:
@@ -962,6 +988,12 @@ def call_deepseek_tool(
 
         if not _allow_tool_content_fallback(client):
             body_len = len((msg.content or "").strip())
+            hint = ""
+            if _is_sakura_client(client) and reasoning_content and body_len == 0:
+                hint = (
+                    " SAKURA likely consumed all tokens for reasoning; "
+                    "try increasing max_tokens."
+                )
             raise ValueError(
                 "missing forced tool_call arguments "
                 f"(provider={_provider_port_for_client(client)!r}, "
@@ -972,6 +1004,7 @@ def call_deepseek_tool(
                 f"has_reasoning={reasoning_content is not None}, "
                 f"reasoning_len={len(reasoning_content) if reasoning_content else 0}, "
                 f"usage={usage})"
+                f"{hint}"
             )
 
         body = (msg.content or "").strip()
@@ -1013,6 +1046,19 @@ def call_deepseek_tool(
         usage=usage,
         tool_parameters=tool_parameters,
     )
+
+    # SAKURA Kimi-K2.6 ignores parallel_tool_calls and may return multiple
+    # calls for the same function.  When it does, we keep the first call and
+    # warn so the unexpected extra calls are visible in logs.
+    if _is_sakura_client(client) and tool_calls_count > 1:
+        warnings.warn(
+            f"SAKURA returned {tool_calls_count} tool_calls for "
+            f"'{tool_name}' despite single-tool request. "
+            f"Using first call only. "
+            f"(finish_reason={finish_reason!r})",
+            stacklevel=2,
+        )
+
     return parsed, reasoning_content, usage, raw_args
 
 

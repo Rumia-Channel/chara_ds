@@ -33,7 +33,9 @@ from .config import (
     PersonaLine,
     PromptBundle,
     SAKURA_DEFAULT_BASE_URL,
+    SAKURA_DEFAULT_MODEL,
     SAKURA_GUARD_MODEL,
+    SAKURA_MAX_OUTPUT_TOKENS,
 )
 from .conversation import estimate_ending_pacing_floor, generate_one_conversation
 from .io_utils import (
@@ -776,6 +778,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--sakura",
+        action="store_true",
+        help=(
+            "Shortcut for SAKURA AI Engine remote API. "
+            f"Defaults to --base-url {SAKURA_DEFAULT_BASE_URL}, "
+            f"--model {SAKURA_DEFAULT_MODEL}, --thinking off. "
+            "Set SAKURA_API_KEY environment variable."
+        ),
+    )
+    parser.add_argument(
         "--plain-json-tools",
         action="store_true",
         help=(
@@ -1076,9 +1088,26 @@ def main() -> None:
         raise ValueError("--llama-cpp and --lmstudio cannot be combined")
     if args.opencode_go and (args.llama_cpp or args.lmstudio):
         raise ValueError("--opencode-go cannot be combined with --llama-cpp or --lmstudio")
+    if args.sakura and (args.llama_cpp or args.lmstudio or args.opencode_go):
+        raise ValueError("--sakura cannot be combined with --llama-cpp, --lmstudio, or --opencode-go")
 
-    if args.llama_cpp or args.lmstudio or args.opencode_go:
-        if args.opencode_go:
+    if args.llama_cpp or args.lmstudio or args.opencode_go or args.sakura:
+        if args.sakura:
+            os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "sakura"
+            default_base_url = SAKURA_DEFAULT_BASE_URL
+            default_model = SAKURA_DEFAULT_MODEL
+            # Kimi-K2.6 max_total_tokens=262144 via SAKURA.
+            if args.persona_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+                args.persona_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+            if args.controller_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+                args.controller_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+            if args.actor_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+                args.actor_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+            if args.actor_guard_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+                args.actor_guard_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+            if args.situation_max_tokens == DEEPSEEK_V4_MAX_OUTPUT_TOKENS:
+                args.situation_max_tokens = SAKURA_MAX_OUTPUT_TOKENS
+        elif args.opencode_go:
             os.environ["CHARA_DS_OPENAI_COMPAT_MODE"] = "opencode_go"
             default_base_url = OPENCODE_GO_DEFAULT_BASE_URL
             default_model = OPENCODE_GO_DEFAULT_MODEL
@@ -1127,6 +1156,8 @@ def main() -> None:
             else args.actor_guard_model
         )
 
+    if args.sakura and args.flash:
+        raise ValueError("--sakura cannot be combined with --flash")
     if args.flash and args.model != FLASH_MODEL:
         raise ValueError("--flash cannot be combined with --model other than deepseek-v4-flash")
 
