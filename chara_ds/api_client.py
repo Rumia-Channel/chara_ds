@@ -791,17 +791,22 @@ def call_deepseek_json(
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     # SAKURA: always use streaming to prevent gateway 504
     if _is_sakura_client(client):
-        return _call_sakura_json_streaming(
-            client=client,
-            model=model,
-            system_prompt=system_prompt,
-            user_payload=user_payload,
-            static_context=static_context,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            token_callback=token_callback,
-        )
+        try:
+            return _call_sakura_json_streaming(
+                client=client,
+                model=model,
+                system_prompt=system_prompt,
+                user_payload=user_payload,
+                static_context=static_context,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                token_callback=token_callback,
+            )
+        except (ValueError, ModelOutputParseError):
+            raise
+        except Exception:
+            pass  # fall through to non-streaming
 
     if stream_enabled:
         return _call_streaming_json(
@@ -1513,19 +1518,25 @@ def call_deepseek_tool(
     """
     # SAKURA Kimi-K2.6: always use streaming to prevent gateway 504 timeouts.
     if _is_sakura_client(client):
-        return _call_sakura_tool_streaming(
-            client=client,
-            model=model,
-            system_prompt=system_prompt,
-            user_payload=user_payload,
-            static_context=static_context,
-            tool_name=tool_name,
-            tool_description=tool_description,
-            tool_parameters=tool_parameters,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-        )
+        try:
+            return _call_sakura_tool_streaming(
+                client=client,
+                model=model,
+                system_prompt=system_prompt,
+                user_payload=user_payload,
+                static_context=static_context,
+                tool_name=tool_name,
+                tool_description=tool_description,
+                tool_parameters=tool_parameters,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                token_callback=token_callback,
+            )
+        except (ValueError, ModelOutputParseError):
+            raise
+        except Exception:
+            pass  # fall through to non-streaming
 
     if stream_enabled:
         return _call_streaming_tool(
