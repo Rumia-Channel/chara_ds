@@ -32,10 +32,42 @@ DeepSeek API では以下を利用します。
 - `--thinking on` は Persona / Turn Controller / Actor の thinking をすべて有効にします。
 - `--thinking off` は Persona / Turn Controller / Actor の thinking をすべて無効にします。
 - `--thinking default` は従来の既定値です。Persona / Actor は有効、Turn Controller は無効です。
+
+### プロバイダー振り分け
+
+各エージェントを DeepSeek / SAKURA のどちらで実行するか、まとめて指定または個別指定できます。
+
+**まとめて指定:**
+
+- `--sakura` : 全エージェントを SAKURA AI Engine (`preview/Kimi-K2.6`) に切り替えます。`SAKURA_API_KEY` が必要です。
+- `--all-deepseek` : 全エージェントを明示的に DeepSeek に固定します。
+- `--control-provider sakura|deepseek` : Persona Controller、Grand Controller、Turn Controller、Actor に加え、Guard と Audit のプロバイダー未指定時にもカスケードします。これ一つで全エージェントのプロバイダーを制御できます。
+
+**個別指定（`--control-provider` より優先）:**
+
+- `--persona-provider deepseek|sakura` : Persona Controller のみ。
+- `--actor-provider deepseek|sakura` : Actor のみ。
+- `--guard-provider deepseek|sakura` : Actor Guard のみ。
+- `--conversation-audit-provider deepseek|sakura` : Conversation Auditor のみ。
+
+**例: 全エージェントを SAKURA で実行**
+
+```powershell
+uv run python main.py --persona-txt format.txt --out out.jsonl --sakura --control-provider sakura --actor-guard --conversation-audit --progress-server
+```
+
+`--control-provider sakura` により、actor guard と conversation audit も自動で SAKURA になります。
+
+- `--sakura-guard` : ActorGuard だけを SAKURA の `gpt-oss-120b` に切り替えます（Kimi-K2.6 ではなく別モデルでの監査用）。`--guard-provider sakura` とは異なりモデルを固定します。
 - `--actor-guard` を付けると、各Actor出力後に第三者視点の監視を挟みます。既定は `--actor-guard-model deepseek-v4-pro --actor-guard-thinking off` です。
-- `--sakura-guard` を付けると ActorGuard だけを SAKURA AI Engine に切り替えます。`SAKURA_API_KEY` を環境変数に設定し、既定では `https://api.ai.sakura.ad.jp/v1` の `gpt-oss-120b` を使います。
-- `--conversation-audit` を付けると、生成完了後に会話全体を横断監査し、`conversation_audit` を出力に保存します。`--conversation-audit-provider sakura` で SAKURA 側の視点から監査できます。
+- `--conversation-audit` を付けると、生成完了後に会話全体を横断監査し、`conversation_audit` を出力に保存します。
 - `--persona-max-tokens` / `--controller-max-tokens` / `--actor-max-tokens` / `--actor-guard-max-tokens` / `--situation-max-tokens` は既定で DeepSeek V4 の最大出力 384K に合わせています。`0` を指定すると `max_tokens` を省略します。
+
+### ストリーミング API
+
+- `--stream` （デフォルトON）: LLM API 呼び出しにストリーミングを使用します。`--no-stream` で無効化できます。
+- SAKURA プロバイダーは `--stream` の有無にかかわらず常にストリーミングで実行されます（ゲートウェイ 504 タイムアウト対策）。
+- ストリーミング中、Web UI の Agent Stream タブに生成トークンがリアルタイムで表示されます（SSE 経由、緑色のライブ表示）。
 
 ## 入力ファイル
 
@@ -395,10 +427,42 @@ Model and thinking mode can be switched from the CLI:
 - `--thinking on` enables thinking for Persona, Turn Controller, and Actor calls.
 - `--thinking off` disables thinking for Persona, Turn Controller, and Actor calls.
 - `--thinking default` keeps the legacy defaults: Persona / Actor on, Turn Controller off.
+
+### Provider routing
+
+Each agent can be routed to DeepSeek or SAKURA, collectively or individually.
+
+**Bulk routing:**
+
+- `--sakura` : Routes all agents to SAKURA AI Engine (`preview/Kimi-K2.6`). Requires `SAKURA_API_KEY`.
+- `--all-deepseek` : Explicitly fixes all agents to DeepSeek.
+- `--control-provider sakura|deepseek` : Routes Persona, Grand, Turn Controller, and Actor. Also cascades to Guard and Audit when their providers are not explicitly set. A single flag to control all agents.
+
+**Per-agent routing (takes precedence over `--control-provider`):**
+
+- `--persona-provider deepseek|sakura` : Persona Controller only.
+- `--actor-provider deepseek|sakura` : Actor only.
+- `--guard-provider deepseek|sakura` : Actor Guard only.
+- `--conversation-audit-provider deepseek|sakura` : Conversation Auditor only.
+
+**Example: run all agents on SAKURA**
+
+```powershell
+uv run python main.py --persona-txt format.txt --out out.jsonl --sakura --control-provider sakura --actor-guard --conversation-audit --progress-server
+```
+
+`--control-provider sakura` ensures actor guard and conversation audit also use SAKURA automatically.
+
+- `--sakura-guard` switches only ActorGuard to SAKURA's `gpt-oss-120b` (not Kimi-K2.6; intended for guard-specific model choice). Unlike `--guard-provider sakura`, this also overrides the model.
 - `--actor-guard` adds a third-person judge after each Actor turn. By default it uses `--actor-guard-model deepseek-v4-pro --actor-guard-thinking off`.
-- `--sakura-guard` switches only ActorGuard to SAKURA AI Engine. Set `SAKURA_API_KEY`; the default endpoint is `https://api.ai.sakura.ad.jp/v1` and the default model is `gpt-oss-120b`.
-- `--conversation-audit` runs a full-conversation audit after generation and stores `conversation_audit`. Use `--conversation-audit-provider sakura` for a SAKURA-side audit perspective.
+- `--conversation-audit` runs a full-conversation audit after generation and stores `conversation_audit`.
 - `--persona-max-tokens` / `--controller-max-tokens` / `--actor-max-tokens` / `--actor-guard-max-tokens` / `--situation-max-tokens` default to DeepSeek V4 max output, 384K. Set `0` to omit `max_tokens`.
+
+### Streaming API
+
+- `--stream` (default on): Uses streaming for LLM API calls. Disable with `--no-stream`.
+- SAKURA provider always uses streaming regardless of `--stream` (to prevent gateway 504 timeouts).
+- During streaming, the Web UI's Agent Stream tab shows generated tokens in real time via SSE (green live indicator).
 
 ## Generating base situations
 
