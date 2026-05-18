@@ -649,7 +649,13 @@ TURN_CONTROLLER_TOOL_PARAMETERS: Dict[str, Any] = {
 
 
 def should_retry_tool_without_thinking(exc: ValueError) -> bool:
-    """DeepSeek thinking mode can emit empty or malformed tool arguments."""
+    """Return True for errors that may resolve with thinking disabled.
+
+    Covers:
+    - DeepSeek thinking mode emitting empty/malformed tool arguments.
+    - Any provider's streaming API errors (mid-stream chunk error).
+    - Model output parse errors from any source.
+    """
 
     if isinstance(exc, ModelOutputParseError):
         return True
@@ -658,6 +664,8 @@ def should_retry_tool_without_thinking(exc: ValueError) -> bool:
     return (
         "empty tool_call arguments" in message
         or "tool arguments schema violation" in message
+        or "streaming error" in message
+        or "streaming" in message.lower() and "error" in message.lower()
     )
 
 

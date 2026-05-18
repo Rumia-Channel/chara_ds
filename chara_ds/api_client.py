@@ -614,6 +614,20 @@ def _call_sakura_json_streaming(
 
             err = getattr(chunk, "error", None)
             if err:
+                # Try to salvage whatever content we've already accumulated
+                partial = "".join(content_parts).strip()
+                if partial:
+                    try:
+                        parsed = _parse_json_or_raise(
+                            text=partial,
+                            source="sakura.streaming.salvage",
+                            reasoning_content="".join(reasoning_parts) or None,
+                            finish_reason=finish_reason,
+                            usage=usage,
+                        )
+                        return parsed, "".join(reasoning_parts) or None, usage, partial
+                    except Exception:
+                        pass
                 raise ValueError(
                     f"SAKURA streaming error: {err} "
                     f"(reasoning_accumulated={len(''.join(reasoning_parts))} chars)"
@@ -940,12 +954,31 @@ def call_deepseek_text(
         finish_reason = None
         usage: Dict[str, Any] = {}
 
-        for chunk in response:
-            if not chunk.choices:
-                u = getattr(chunk, "usage", None)
-                if u is not None:
-                    usage = usage_to_dict(u)
-                continue
+    for chunk in response:
+        if not chunk.choices:
+            u = getattr(chunk, "usage", None)
+            if u is not None:
+                usage = usage_to_dict(u)
+            err = getattr(chunk, "error", None)
+            if err:
+                partial = "".join(content_parts).strip()
+                if partial:
+                    try:
+                        parsed = _parse_json_or_raise(
+                            text=partial,
+                            source="streaming.salvage",
+                            reasoning_content="".join(reasoning_parts) or None,
+                            finish_reason=finish_reason,
+                            usage=usage,
+                        )
+                        return parsed, "".join(reasoning_parts) or None, usage, partial
+                    except Exception:
+                        pass
+                raise ValueError(
+                    f"streaming error: {err} "
+                    f"(content_accumulated={len(partial)} chars)"
+                )
+            continue
 
             delta = chunk.choices[0].delta
         c = getattr(delta, "content", None) or ""
@@ -1154,6 +1187,24 @@ def _call_sakura_tool_streaming(
             # SAKURA may emit error chunks mid-stream (e.g. server timeout)
             err = getattr(chunk, "error", None)
             if err:
+                # Try to salvage whatever content or tool args we've already accumulated
+                partial = "".join(content_parts).strip()
+                if not partial and tool_call_slots:
+                    first_slot = tool_call_slots[min(tool_call_slots.keys())]
+                    partial = "".join(first_slot.get("args", [])).strip()
+                if partial:
+                    try:
+                        parsed = _parse_tool_arguments_or_raise(
+                            text=partial,
+                            source="sakura.streaming.tool.salvage",
+                            reasoning_content="".join(reasoning_parts) or None,
+                            finish_reason=finish_reason,
+                            usage=usage,
+                            tool_parameters=tool_parameters,
+                        )
+                        return parsed, "".join(reasoning_parts) or None, usage, partial
+                    except Exception:
+                        pass
                 raise ValueError(
                     f"SAKURA streaming error: {err} "
                     f"(reasoning_accumulated={len(''.join(reasoning_parts))} chars)"
@@ -1330,6 +1381,31 @@ def _call_streaming_tool(
             u = getattr(chunk, "usage", None)
             if u is not None:
                 usage = usage_to_dict(u)
+            err = getattr(chunk, "error", None)
+            if err:
+                # Try to salvage whatever tool arguments we've already accumulated
+                partial_args = ""
+                if tool_call_slots:
+                    first_slot = tool_call_slots[min(tool_call_slots.keys())]
+                    partial_args = "".join(first_slot.get("args", []))
+                if not partial_args:
+                    partial_args = "".join(content_parts).strip()
+                if partial_args and partial_args.strip():
+                    try:
+                        parsed = _parse_tool_arguments_or_raise(
+                            text=partial_args,
+                            source="streaming.tool.salvage",
+                            reasoning_content="".join(reasoning_parts) or None,
+                            finish_reason=finish_reason,
+                            usage=usage,
+                            tool_parameters=tool_parameters,
+                        )
+                        return parsed, "".join(reasoning_parts) or None, usage, partial_args
+                    except Exception:
+                        pass
+                raise ValueError(
+                    f"streaming tool error: {err}"
+                )
             continue
 
         delta = chunk.choices[0].delta
