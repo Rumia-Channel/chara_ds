@@ -18,50 +18,11 @@ let sseLastId = 0;
 let sseConnection = null;
 const liveStreams = {};             // { "conv_id|stage": "accumulated_text" }
 let sseRenderPending = false;
-
-function connectSSE() {
-  if (sseConnection) return;
-  sseConnection = new EventSource("/stream?last_id=" + sseLastId);
-  sseConnection.onmessage = function (e) {
-    try {
-      const ev = JSON.parse(e.data);
-      sseLastId = ev.id || sseLastId;
-      const key = ev.conversation_id + "|" + ev.stage;
-      liveStreams[key] = (liveStreams[key] || "") + ev.chunk;
-      // Cull old entries (keep last 50)
-      const keys = Object.keys(liveStreams);
-      if (keys.length > 50) {
-        const toDelete = keys.slice(0, keys.length - 50);
-        toDelete.forEach(k => delete liveStreams[k]);
-      }
-      scheduleSSERender();
-    } catch (_) { /* ignore parse errors */ }
-  };
-  sseConnection.onerror = function () {
-    if (sseConnection.readyState === 2) { // CLOSED
-      sseConnection = null;
-    }
-  };
-}
-
-function scheduleSSERender() {
-  if (sseRenderPending) return;
-  sseRenderPending = true;
-  requestAnimationFrame(() => {
-    sseRenderPending = false;
-    if (timelineMode === "agent_stream") {
-      refresh().catch(() => {});
-    } else {
-      try { renderActive(window.__lastState || {}); } catch (_) {}
-    }
-  });
-}
-
-// Clear live stream for a completed stage
-function clearLiveStream(conversationId, stage) {
-  const key = conversationId + "|" + stage;
-  delete liveStreams[key];
-}
+// DOM references for direct live updates (avoids full re-render on every token)
+let liveStreamEl = null;            // the <div class="stream-entry stream-live">
+let liveStreamBody = null;          // the <pre> inside it
+let liveStreamKey = null;           // the key ("conv_id|stage") currently displayed
+let lastKnownEntryCount = 0;        // agent_history entry count, to detect completion
 
 // Completed-tab state
 let completedOffset = 0;
@@ -69,6 +30,31 @@ let completedLimit = 50;
 let completedOrder = "desc";
 let completedTotal = 0;
 let completedExpandedId = null;
+
+// Mode tabs: switch between Timeline and Agent Stream
+document.querySelectorAll(".mode-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".mode-tab").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    timelineMode = btn.dataset.mode;
+    if (timelineMode === "agent_stream") {
+      $("agent-stream-agent").hidden = false;
+      $("timeline-count").hidden = false;
+      lastTimelineLen = 0;
+    } else {
+      $("agent-stream-agent").hidden = true;
+      $("timeline-count").hidden = true;
+      // Clean up live stream element when leaving agent stream mode
+      if (liveStreamEl && liveStreamEl.parentNode) {
+        liveStreamEl.remove();
+      }
+      liveStreamEl = null;
+      liveStreamBody = null;
+      liveStreamKey = null;
+    }
+    refresh();
+  });
+});
 
 document.querySelectorAll(".tab").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -93,18 +79,6 @@ $("timeline-select").addEventListener("change", (e) => {
   selectedConversation = e.target.value || "__latest__";
   lastTimelineLen = 0;
   refresh();
-});
-
-// Mode tabs: switch between Timeline and Agent Stream
-document.querySelectorAll(".mode-tab").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".mode-tab").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    timelineMode = btn.dataset.mode;
-    $("agent-stream-agent").hidden = timelineMode !== "agent_stream";
-    lastTimelineLen = 0;
-    refresh();
-  });
 });
 
 $("agent-stream-agent").addEventListener("change", (e) => {
@@ -717,12 +691,24 @@ function renderAgentStream(state) {
 
   if (entries.length === 0) {
     container.innerHTML = "";
-    const d = document.createElement("div");
-    d.className = "empty";
-    const agentLabel = $("agent-stream-agent").selectedOptions[0]?.textContent || agentStreamAgent;
-    d.textContent = "no " + agentLabel + " responses yet" +
-      (selectedConversation !== "__latest__" ? " (" + selectedConversation + ")" : "");
-    container.appendChild(d);
+    // If there's a live stream for the current view, show it even with no history
+    let hasLive = false;
+    if (liveStreamEl && liveStreamKey) {
+      const [keyCid, keyStage] = liveStreamKey.split("|");
+      if (keyStage === agentStreamAgent &&
+          (selectedConversation === "__latest__" || selectedConversation === keyCid)) {
+        container.appendChild(liveStreamEl);
+        hasLive = true;
+      }
+    }
+    if (!hasLive) {
+      const d = document.createElement("div");
+      d.className = "empty";
+      const agentLabel = $("agent-stream-agent").selectedOptions[0]?.textContent || agentStreamAgent;
+      d.textContent = "no " + agentLabel + " responses yet" +
+        (selectedConversation !== "__latest__" ? " (" + selectedConversation + ")" : "");
+      container.appendChild(d);
+    }
     lastSelectedConversation = selectedConversation;
     lastTimelineLen = 0;
     return;
@@ -756,40 +742,12 @@ function renderAgentStream(state) {
     container.appendChild(div);
   });
 
-  // Show live streaming tokens for the currently selected agent/conversation
-  if (timelineMode === "agent_stream") {
-    const activeIds = Object.keys(active);
-    for (const cid of activeIds) {
-      if (selectedConversation !== "__latest__" && selectedConversation !== cid) continue;
-      const key = cid + "|" + agentStreamAgent;
-      const text = liveStreams[key];
-      if (text && text.length > 0) {
-        const liveDiv = document.createElement("div");
-        liveDiv.className = "stream-entry stream-live";
-
-        const head = document.createElement("div");
-        head.className = "stream-head";
-
-        const cidSpan = document.createElement("span");
-        cidSpan.className = "stream-cid";
-        cidSpan.textContent = cid;
-        head.appendChild(cidSpan);
-
-        const labelSpan = document.createElement("span");
-        labelSpan.className = "stream-label";
-        labelSpan.innerHTML = '<span class="live-dot"></span> streaming...';
-        head.appendChild(labelSpan);
-
-        liveDiv.appendChild(head);
-
-        const body = document.createElement("pre");
-        body.className = "stream-body";
-        body.textContent = text;
-        liveDiv.appendChild(body);
-
-        container.appendChild(liveDiv);
-        break;
-      }
+  // Re-attach live stream element if it belongs to the current view
+  if (liveStreamEl && liveStreamKey) {
+    const [keyCid, keyStage] = liveStreamKey.split("|");
+    if (keyStage === agentStreamAgent &&
+        (selectedConversation === "__latest__" || selectedConversation === keyCid)) {
+      container.appendChild(liveStreamEl);
     }
   }
 
@@ -1066,10 +1024,11 @@ async function openCompleted(cid) {
 
 async function refresh() {
   if (uiPaused) return;
+  let state = null;
   try {
     const res = await fetch("/state?t=" + Date.now());
-    if (!res.ok) return;
-    const state = await res.json();
+    if (!res.ok) return null;
+    state = await res.json();
     window.__lastState = state;
     setStatus(state);
     setControl(state);
@@ -1081,8 +1040,8 @@ async function refresh() {
   } catch (e) {
     // ignore network blips
   }
+  return state;
 }
 
 setInterval(refresh, REFRESH_MS);
 refresh();
-connectSSE();
