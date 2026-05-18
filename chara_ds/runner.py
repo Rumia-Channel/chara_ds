@@ -544,6 +544,7 @@ def run_one_conversation_task(
             errors_out=errors_out,
             retries=args.retries,
             retry_base_sleep=args.retry_base_sleep,
+            stream_enabled=args.stream,
             cache_dir=cache_dir,
             cache_diagnostics=args.resume,
             backup_existing_cache=not args.no_turn_cache_backup,
@@ -689,6 +690,7 @@ def rewrite_one_conversation_task(
             errors_out=errors_out,
             retries=args.retries,
             retry_base_sleep=args.retry_base_sleep,
+            stream_enabled=args.stream,
             cache_dir=cache_dir,
             backup_existing_cache=not args.no_turn_cache_backup,
             conversation_id_override=conversation_id,
@@ -821,6 +823,7 @@ def finish_one_conversation_task(
             errors_out=errors_out,
             retries=args.retries,
             retry_base_sleep=args.retry_base_sleep,
+            stream_enabled=args.stream,
             cache_dir=cache_dir,
             backup_existing_cache=not args.no_turn_cache_backup,
             existing_record=record,
@@ -1023,6 +1026,19 @@ def parse_args() -> argparse.Namespace:
             "default keeps the legacy defaults: persona/actor on, turn controller off. "
             "Per-agent thinking flags below override this value."
         ),
+    )
+
+    parser.add_argument(
+        "--stream",
+        action="store_true",
+        default=True,
+        help="Use streaming API for LLM calls (default: on). Use --no-stream to disable.",
+    )
+    parser.add_argument(
+        "--no-stream",
+        action="store_false",
+        dest="stream",
+        help="Disable streaming API for LLM calls.",
     )
 
     parser.add_argument("--disable-persona-thinking", action="store_true")

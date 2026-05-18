@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from openai import OpenAI
 
@@ -791,6 +791,8 @@ def call_persona_controller(
     reasoning_effort: str,
     max_tokens: Optional[int],
     thinking_enabled: Optional[bool],
+    stream_enabled: bool = False,
+    token_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     static_context = {
         "task": "create_persona_seed_from_user_txt_line",
@@ -832,6 +834,8 @@ def call_persona_controller(
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
             thinking_enabled=thinking_enabled,
+            stream_enabled=stream_enabled,
+            token_callback=token_callback,
         )
     except ValueError as e:
         if thinking_enabled and should_retry_tool_without_thinking(e):
@@ -850,6 +854,8 @@ def call_persona_controller(
                 thinking_enabled=False,
                 temperature=0.0,
                 top_p=1.0,
+                stream_enabled=stream_enabled,
+                token_callback=token_callback,
             )
         else:
             raise
@@ -879,6 +885,8 @@ def call_turn_controller(
     thinking_enabled: bool,
     temperature: float,
     top_p: float,
+    stream_enabled: bool = False,
+    token_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     # Static across the whole conversation -> appended to system prompt so the
     # KV cache prefix is identical for every turn_controller call in this run.
@@ -929,6 +937,8 @@ def call_turn_controller(
             thinking_enabled=thinking_enabled,
             temperature=temperature,
             top_p=top_p,
+            stream_enabled=stream_enabled,
+            token_callback=token_callback,
         )
         parsed = normalize_turn_control_output(parsed)
         if not validate_turn_control_output(parsed):
@@ -956,6 +966,8 @@ def call_turn_controller(
             thinking_enabled=thinking_enabled,
             temperature=temperature,
             top_p=top_p,
+            stream_enabled=stream_enabled,
+            token_callback=token_callback,
         )
     except ValueError as e:
         if thinking_enabled and should_retry_tool_without_thinking(e):
@@ -974,6 +986,8 @@ def call_turn_controller(
                 thinking_enabled=False,
                 temperature=0.0,
                 top_p=1.0,
+                stream_enabled=stream_enabled,
+                token_callback=token_callback,
             )
         else:
             raise
@@ -1006,6 +1020,8 @@ def call_grand_controller(
     reasoning_effort: str,
     max_tokens: Optional[int],
     thinking_enabled: Optional[bool],
+    stream_enabled: bool = False,
+    token_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     if not prompts.grand_controller.strip():
         return {}, None, {}, ""
@@ -1044,6 +1060,8 @@ def call_grand_controller(
             thinking_enabled=thinking_enabled,
             temperature=0.0 if thinking_enabled is False else None,
             top_p=1.0 if thinking_enabled is False else None,
+            stream_enabled=stream_enabled,
+            token_callback=token_callback,
         )
     except ValueError as e:
         if thinking_enabled and should_retry_tool_without_thinking(e):
@@ -1062,6 +1080,8 @@ def call_grand_controller(
                 thinking_enabled=False,
                 temperature=0.0,
                 top_p=1.0,
+                stream_enabled=stream_enabled,
+                token_callback=token_callback,
             )
         else:
             raise
@@ -1087,6 +1107,8 @@ def call_actor(
     max_tokens: Optional[int],
     thinking_enabled: bool,
     actor_guard_feedback: Optional[Dict[str, Any]] = None,
+    stream_enabled: bool = False,
+    token_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     characters = persona_seed.get("characters", {})
     own_profile = characters.get(speaker, {})
@@ -1141,6 +1163,8 @@ def call_actor(
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
             thinking_enabled=thinking_enabled,
+            stream_enabled=stream_enabled,
+            token_callback=token_callback,
         )
     except ValueError as e:
         # DeepSeek thinking mode occasionally puts everything into reasoning and
@@ -1162,6 +1186,8 @@ def call_actor(
                 thinking_enabled=False,
                 temperature=0.0,
                 top_p=1.0,
+                stream_enabled=stream_enabled,
+                token_callback=token_callback,
             )
         else:
             raise
@@ -1262,6 +1288,8 @@ def call_actor_guard(
     max_tokens: Optional[int],
     thinking_enabled: bool,
     tool_strict: bool = True,
+    stream_enabled: bool = False,
+    token_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     characters = persona_seed.get("characters", {})
     static_context = {
@@ -1320,6 +1348,8 @@ def call_actor_guard(
             thinking_enabled=thinking_enabled,
             temperature=0.0 if thinking_enabled is False else None,
             top_p=1.0 if thinking_enabled is False else None,
+            stream_enabled=stream_enabled,
+            token_callback=token_callback,
         )
     except ValueError as e:
         if thinking_enabled and should_retry_tool_without_thinking(e):
@@ -1338,6 +1368,8 @@ def call_actor_guard(
                 thinking_enabled=False,
                 temperature=0.0,
                 top_p=1.0,
+                stream_enabled=stream_enabled,
+                token_callback=token_callback,
             )
         else:
             raise
@@ -1366,6 +1398,8 @@ def call_conversation_auditor(
     max_tokens: Optional[int],
     thinking_enabled: bool,
     tool_strict: bool = True,
+    stream_enabled: bool = False,
+    token_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     if not prompts.conversation_auditor.strip():
         raise ValueError("conversation_auditor prompt is empty")
@@ -1404,6 +1438,8 @@ def call_conversation_auditor(
         thinking_enabled=thinking_enabled,
         temperature=0.0 if thinking_enabled is False else None,
         top_p=1.0 if thinking_enabled is False else None,
+        stream_enabled=stream_enabled,
+        token_callback=token_callback,
     )
 
     if not validate_conversation_audit_output(args):

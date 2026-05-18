@@ -22,7 +22,7 @@ from .agents import (
 from .api_client import call_with_retries
 from .config import DATASET_NAME, PersonaLine, PromptBundle, SCHEMA_VERSION
 from .io_utils import now_iso, sha256_json, sha256_text
-from .progress import progress_update
+from .progress import make_stream_callback, progress_update
 from .turn_cache import (
     backup_turn_cache,
     cache_path_for,
@@ -208,6 +208,7 @@ def generate_one_conversation(
     errors_out: str,
     retries: int,
     retry_base_sleep: float,
+    stream_enabled: bool = False,
     cache_dir: Optional[str] = None,
     cache_diagnostics: bool = False,
     backup_existing_cache: bool = True,
@@ -481,6 +482,8 @@ def generate_one_conversation(
                 reasoning_effort=reasoning_effort,
                 max_tokens=persona_max_tokens,
                 thinking_enabled=persona_thinking_enabled,
+                stream_enabled=stream_enabled,
+                token_callback=make_stream_callback(conversation_id, "persona") if stream_enabled else None,
             ),
             retries=retries,
             errors_out=errors_out,
@@ -571,6 +574,8 @@ def generate_one_conversation(
                     reasoning_effort=reasoning_effort,
                     max_tokens=controller_max_tokens,
                     thinking_enabled=turn_controller_thinking_enabled,
+                    stream_enabled=stream_enabled,
+                    token_callback=make_stream_callback(conversation_id, "grand_controller") if stream_enabled else None,
                 ),
                 retries=retries,
                 errors_out=errors_out,
@@ -613,6 +618,8 @@ def generate_one_conversation(
                     thinking_enabled=turn_controller_thinking_enabled,
                     temperature=controller_temperature,
                     top_p=controller_top_p,
+                    stream_enabled=stream_enabled,
+                    token_callback=make_stream_callback(conversation_id, "controller") if stream_enabled else None,
                 ),
                 retries=retries,
                 errors_out=errors_out,
@@ -666,6 +673,8 @@ def generate_one_conversation(
                         reasoning_effort=reasoning_effort,
                         max_tokens=actor_max_tokens,
                         thinking_enabled=actor_thinking_enabled,
+                        stream_enabled=stream_enabled,
+                        token_callback=make_stream_callback(conversation_id, "actor") if stream_enabled else None,
                     )
                     return (*actor_result, None, None, {}, "")
 
@@ -687,6 +696,8 @@ def generate_one_conversation(
                         max_tokens=actor_max_tokens,
                         thinking_enabled=actor_thinking_enabled,
                         actor_guard_feedback=feedback,
+                        stream_enabled=stream_enabled,
+                        token_callback=make_stream_callback(conversation_id, "actor") if stream_enabled else None,
                     )
 
                     actor_content_local = actor_result[0]
@@ -728,6 +739,8 @@ def generate_one_conversation(
                         if actor_guard_provider == "deepseek"
                         else None,
                         tool_strict=actor_guard_provider == "deepseek",
+                        stream_enabled=stream_enabled,
+                        token_callback=make_stream_callback(conversation_id, "actor_guard") if stream_enabled else None,
                     )
                     last_guard = (guard_content, guard_reasoning, guard_usage, guard_raw)
                     guard_attempts.append(
@@ -1109,6 +1122,8 @@ def generate_one_conversation(
                 if conversation_audit_provider == "deepseek"
                 else None,
                 tool_strict=conversation_audit_provider == "deepseek",
+                stream_enabled=stream_enabled,
+                token_callback=make_stream_callback(conversation_id, "audit") if stream_enabled else None,
             ),
             retries=retries,
             errors_out=errors_out,

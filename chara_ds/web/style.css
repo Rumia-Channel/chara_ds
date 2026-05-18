@@ -294,6 +294,31 @@ html, body {
   overflow-y: auto;
 }
 
+.stream-live {
+  border-color: var(--accent-2);
+  box-shadow: 0 0 8px rgba(139, 233, 199, 0.15);
+}
+
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  margin-right: 6px;
+  animation: live-pulse 1s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.stream-live .stream-body {
+  color: var(--accent-2);
+}
+
 .active-card .ac-id {
   font-family: var(--mono);
   font-size: 11px;

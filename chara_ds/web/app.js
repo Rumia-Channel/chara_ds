@@ -13,6 +13,61 @@ let timelineMode = "timeline";       // "timeline" | "agent_stream"
 let agentStreamAgent = "actor";      // agent_key for the stream
 const openAgentDetails = new Set();
 
+// SSE streaming state
+let sseLastId = 0;
+let sseConnection = null;
+const liveStreams = {};             // { "conv_id|stage": "accumulated_text" }
+let sseRenderPending = false;
+
+function connectSSE() {
+  if (sseConnection) {
+    sseConnection.close();
+  }
+  sseConnection = new EventSource("/stream?last_id=" + sseLastId);
+  sseConnection.onmessage = function (e) {
+    try {
+      const ev = JSON.parse(e.data);
+      sseLastId = ev.id || sseLastId;
+      const key = ev.conversation_id + "|" + ev.stage;
+      liveStreams[key] = (liveStreams[key] || "") + ev.chunk;
+      // Cull old entries (keep last 50)
+      const keys = Object.keys(liveStreams);
+      if (keys.length > 50) {
+        const toDelete = keys.slice(0, keys.length - 50);
+        toDelete.forEach(k => delete liveStreams[k]);
+      }
+      scheduleSSERender();
+    } catch (_) { /* ignore parse errors */ }
+  };
+  sseConnection.onerror = function () {
+    sseConnection.close();
+    sseConnection = null;
+    // Reconnect after 3 seconds
+    setTimeout(connectSSE, 3000);
+  };
+}
+
+function scheduleSSERender() {
+  if (sseRenderPending) return;
+  sseRenderPending = true;
+  requestAnimationFrame(() => {
+    sseRenderPending = false;
+    if (timelineMode === "agent_stream") {
+      // Re-render agent stream to show live tokens
+      refresh();
+    } else {
+      // At least update streaming indicator in active cards
+      renderActive(window.__lastState || {});
+    }
+  });
+}
+
+// Clear live stream for a completed stage
+function clearLiveStream(conversationId, stage) {
+  const key = conversationId + "|" + stage;
+  delete liveStreams[key];
+}
+
 // Completed-tab state
 let completedOffset = 0;
 let completedLimit = 50;
@@ -706,6 +761,43 @@ function renderAgentStream(state) {
     container.appendChild(div);
   });
 
+  // Show live streaming tokens for the currently selected agent/conversation
+  if (timelineMode === "agent_stream") {
+    const activeIds = Object.keys(active);
+    for (const cid of activeIds) {
+      if (selectedConversation !== "__latest__" && selectedConversation !== cid) continue;
+      const key = cid + "|" + agentStreamAgent;
+      const text = liveStreams[key];
+      if (text && text.length > 0) {
+        const liveDiv = document.createElement("div");
+        liveDiv.className = "stream-entry stream-live";
+
+        const head = document.createElement("div");
+        head.className = "stream-head";
+
+        const cidSpan = document.createElement("span");
+        cidSpan.className = "stream-cid";
+        cidSpan.textContent = cid;
+        head.appendChild(cidSpan);
+
+        const labelSpan = document.createElement("span");
+        labelSpan.className = "stream-label";
+        labelSpan.innerHTML = '<span class="live-dot"></span> streaming...';
+        head.appendChild(labelSpan);
+
+        liveDiv.appendChild(head);
+
+        const body = document.createElement("pre");
+        body.className = "stream-body";
+        body.textContent = text;
+        liveDiv.appendChild(body);
+
+        container.appendChild(liveDiv);
+        break;
+      }
+    }
+  }
+
   if (wasAtBottom) container.scrollTop = container.scrollHeight;
   lastTimelineLen = entries.length;
   lastSelectedConversation = selectedConversation;
@@ -983,6 +1075,7 @@ async function refresh() {
     const res = await fetch("/state?t=" + Date.now());
     if (!res.ok) return;
     const state = await res.json();
+    window.__lastState = state;
     setStatus(state);
     setControl(state);
     setProgress(state);
@@ -997,3 +1090,4 @@ async function refresh() {
 
 setInterval(refresh, REFRESH_MS);
 refresh();
+connectSSE();

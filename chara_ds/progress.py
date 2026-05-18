@@ -5,10 +5,11 @@ from __future__ import annotations
 import errno
 import hashlib
 import json
+import time
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from .io_utils import clip_string, now_iso
@@ -85,6 +86,34 @@ PROGRESS_STATE: Dict[str, Any] = {
         "stop_requested": False,
     },
 }
+
+_STREAM_CONDITION = threading.Condition()
+_STREAM_EVENTS: List[Dict[str, Any]] = []
+_STREAM_EVENT_ID = 0
+_STREAM_MAX_EVENTS = 500
+
+
+def push_stream_token(
+    conversation_id: str,
+    stage: str,
+    chunk: str,
+) -> None:
+    global _STREAM_EVENT_ID
+    with _STREAM_CONDITION:
+        _STREAM_EVENT_ID += 1
+        _STREAM_EVENTS.append({
+            "id": _STREAM_EVENT_ID,
+            "conversation_id": conversation_id,
+            "stage": stage,
+            "chunk": chunk,
+        })
+        if len(_STREAM_EVENTS) > _STREAM_MAX_EVENTS:
+            _STREAM_EVENTS[:] = _STREAM_EVENTS[-_STREAM_MAX_EVENTS:]
+        _STREAM_CONDITION.notify_all()
+
+
+def make_stream_callback(conversation_id: str, stage: str) -> Callable[[str], None]:
+    return lambda chunk: push_stream_token(conversation_id, stage, chunk)
 
 
 def _history_meta(current: Optional[Dict[str, Any]], now: str) -> Dict[str, Any]:
@@ -376,6 +405,8 @@ def progress_update(
     error: Optional[Dict[str, Any]] = None,
     event: Optional[Dict[str, Any]] = None,
     remove_active: bool = False,
+    stream_token: Optional[str] = None,
+    stream_stage: Optional[str] = None,
 ) -> None:
     now = now_iso()
 
@@ -433,6 +464,11 @@ def progress_update(
                     _append_agent_history(new_slot, "actor_guard", last_actor_guard, current, now)
                 if last_conversation_audit is not None:
                     _append_agent_history(new_slot, "conversation_audit", last_conversation_audit, current, now)
+                if stream_token is not None:
+                    live = new_slot.get("live_text") or ""
+                    new_slot["live_text"] = live + stream_token
+                    new_slot["live_stage"] = stream_stage
+                    push_stream_token(conversation_id, stream_stage or "", stream_token)
                 new_slot["updated_at"] = now
                 if (
                     current is not None
@@ -631,6 +667,10 @@ class ProgressHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
 
+        if path == "/stream":
+            self._handle_sse_stream()
+            return
+
         if path == "/state":
             with PROGRESS_LOCK:
                 state = json.loads(json.dumps(PROGRESS_STATE, ensure_ascii=False))
@@ -738,6 +778,47 @@ class ProgressHandler(BaseHTTPRequestHandler):
 
         self.send_response(404)
         self.end_headers()
+
+    def _handle_sse_stream(self) -> None:
+        q = self._query()
+        try:
+            last_id = int(q.get("last_id") or "0")
+        except (ValueError, TypeError):
+            last_id = 0
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+        timeout = 15
+        try:
+            while True:
+                events_to_send: List[Dict[str, Any]] = []
+                with _STREAM_CONDITION:
+                    if last_id == 0:
+                        events_to_send = list(_STREAM_EVENTS[-200:])
+                    else:
+                        for ev in _STREAM_EVENTS:
+                            if ev["id"] > last_id:
+                                events_to_send.append(ev)
+                    if events_to_send:
+                        last_id = events_to_send[-1]["id"]
+                    else:
+                        if not _STREAM_CONDITION.wait(timeout=timeout):
+                            self.wfile.write(b": heartbeat\n\n")
+                            self.wfile.flush()
+                            continue
+                        continue
+
+                for ev in events_to_send:
+                    data = json.dumps(ev, ensure_ascii=False)
+                    self.wfile.write(f"id: {ev['id']}\ndata: {data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            pass
 
     def _read_body_json(self) -> Dict[str, Any]:
         length = int(self.headers.get("Content-Length") or "0")
