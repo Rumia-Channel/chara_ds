@@ -582,6 +582,7 @@ def _call_sakura_json_streaming(
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     static_context: Optional[Dict[str, Any]] = None,
+    token_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     """Stream a JSON response from SAKURA to avoid gateway 504."""
     messages = _build_messages(system_prompt, user_payload, static_context)
@@ -624,6 +625,8 @@ def _call_sakura_json_streaming(
         c = getattr(delta, "content", None) or ""
         if c:
             content_parts.append(c)
+            if token_callback:
+                token_callback(c)
 
         r = getattr(delta, "reasoning", None)
         if r:
@@ -783,6 +786,7 @@ def call_deepseek_json(
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            token_callback=token_callback,
         )
 
     if stream_enabled:
@@ -1102,6 +1106,7 @@ def _call_sakura_tool_streaming(
     temperature: Optional[float] = None,
     top_p: Optional[float] = None,
     static_context: Optional[Dict[str, Any]] = None,
+    token_callback: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], Optional[str], Dict[str, Any], str]:
     """Stream a tool call from SAKURA to avoid gateway 504 timeouts.
 
@@ -1160,6 +1165,8 @@ def _call_sakura_tool_streaming(
         c = getattr(delta, "content", None) or ""
         if c:
             content_parts.append(c)
+            if token_callback:
+                token_callback(c)
 
         r = getattr(delta, "reasoning", None)
         if r:
@@ -1183,6 +1190,8 @@ def _call_sakura_tool_streaming(
                     args = getattr(fn, "arguments", None) or ""
                     if args:
                         slot["args"].append(args)
+                        if token_callback:
+                            token_callback(args)
 
         fr = chunk.choices[0].finish_reason
         if fr:
@@ -1553,9 +1562,10 @@ def call_deepseek_tool(
                     max_tokens=max_tokens,
                     thinking_enabled=thinking_enabled,
                     reasoning_effort=reasoning_effort,
-                    temperature=temperature,
-                    top_p=top_p,
-                )
+            temperature=temperature,
+            top_p=top_p,
+            token_callback=token_callback,
+        )
             last_bad_request = e
             continue
 
