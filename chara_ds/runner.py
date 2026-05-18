@@ -429,7 +429,7 @@ def get_controller_client(args: argparse.Namespace):
 
 def get_actor_client(args: argparse.Namespace):
     """Return a dedicated client for actor, or None."""
-    provider = args.actor_provider
+    provider = args.actor_provider or args.control_provider
     if not provider:
         return None
     if provider == "deepseek":
@@ -504,7 +504,7 @@ def run_one_conversation_task(
         args.control_provider, turn_controller_thinking_enabled,
     )
     actor_model, actor_thinking, actor_max_tokens_val = _ps(
-        args.actor_provider, actor_thinking_enabled,
+        args.actor_provider or args.control_provider, actor_thinking_enabled,
     )
 
     try:
@@ -647,9 +647,9 @@ def rewrite_one_conversation_task(
             return SAKURA_DEFAULT_MODEL, False, 0
         return args.model, thinking_def, args.persona_max_tokens
 
-    persona_model, persona_thinking, persona_max_tokens_val = _ps(args.persona_provider, persona_thinking_enabled)
+    persona_model, persona_thinking, persona_max_tokens_val = _ps(args.persona_provider or args.control_provider, persona_thinking_enabled)
     controller_model, controller_thinking, controller_max_tokens_val = _ps(args.control_provider, turn_controller_thinking_enabled)
-    actor_model, actor_thinking, actor_max_tokens_val = _ps(args.actor_provider, actor_thinking_enabled)
+    actor_model, actor_thinking, actor_max_tokens_val = _ps(args.actor_provider or args.control_provider, actor_thinking_enabled)
 
     try:
         if cache_dir and args.delete_turn_cache_on_success:
@@ -782,12 +782,12 @@ def finish_one_conversation_task(
             return SAKURA_DEFAULT_MODEL, False, 0
         return args.model, thinking_def, args.persona_max_tokens
 
-    persona_model, persona_thinking, persona_max_tokens_val = _ps(args.persona_provider, persona_thinking_enabled)
+    persona_model, persona_thinking, persona_max_tokens_val = _ps(args.persona_provider or args.control_provider, persona_thinking_enabled)
     controller_model, controller_thinking, controller_max_tokens_val = _ps(args.control_provider, turn_controller_thinking_enabled)
-    actor_model, actor_thinking, actor_max_tokens_val = _ps(args.actor_provider, actor_thinking_enabled)
+    actor_model, actor_thinking, actor_max_tokens_val = _ps(args.actor_provider or args.control_provider, actor_thinking_enabled)
 
     try:
-        extended = generate_one_conversation(
+        record = generate_one_conversation(
             client=client,
             prompts=prompts,
             model=args.model,
@@ -1368,17 +1368,20 @@ def main() -> None:
         args.actor_guard_provider = "sakura" if args.sakura_guard else "deepseek"
     if args.sakura_guard:
         args.actor_guard_model = args.sakura_guard_model
+    elif args.actor_guard_provider == "sakura" and args.actor_guard_model == PRO_MODEL:
+        args.actor_guard_model = SAKURA_DEFAULT_MODEL
+    elif args.actor_guard_provider == "deepseek" and args.actor_guard_model == SAKURA_DEFAULT_MODEL:
+        args.actor_guard_model = PRO_MODEL
 
     # Audit provider: --conversation-audit-provider > --control-provider
     if args.control_provider and args.conversation_audit_provider == "deepseek":
         args.conversation_audit_provider = args.control_provider
 
     if args.conversation_audit_model is None:
-        args.conversation_audit_model = (
-            args.sakura_guard_model
-            if args.conversation_audit_provider == "sakura"
-            else args.actor_guard_model
-        )
+        if args.conversation_audit_provider == "sakura":
+            args.conversation_audit_model = SAKURA_DEFAULT_MODEL
+        elif args.conversation_audit_provider == "deepseek":
+            args.conversation_audit_model = PRO_MODEL
 
     if args.sakura and args.flash:
         raise ValueError("--sakura cannot be combined with --flash")
