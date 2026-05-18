@@ -625,6 +625,14 @@ class ProgressHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
+    def handle_one_request(self) -> None:
+        try:
+            return super().handle_one_request()
+        except OSError as exc:
+            if _is_client_disconnect(exc):
+                return
+            raise
+
     def _send_bytes(
         self,
         data: bytes,
