@@ -20,9 +20,7 @@ const liveStreams = {};             // { "conv_id|stage": "accumulated_text" }
 let sseRenderPending = false;
 
 function connectSSE() {
-  if (sseConnection) {
-    sseConnection.close();
-  }
+  if (sseConnection) return;
   sseConnection = new EventSource("/stream?last_id=" + sseLastId);
   sseConnection.onmessage = function (e) {
     try {
@@ -40,10 +38,9 @@ function connectSSE() {
     } catch (_) { /* ignore parse errors */ }
   };
   sseConnection.onerror = function () {
-    sseConnection.close();
-    sseConnection = null;
-    // Reconnect after 3 seconds
-    setTimeout(connectSSE, 3000);
+    if (sseConnection.readyState === 2) { // CLOSED
+      sseConnection = null;
+    }
   };
 }
 
@@ -53,11 +50,9 @@ function scheduleSSERender() {
   requestAnimationFrame(() => {
     sseRenderPending = false;
     if (timelineMode === "agent_stream") {
-      // Re-render agent stream to show live tokens
-      refresh();
+      refresh().catch(() => {});
     } else {
-      // At least update streaming indicator in active cards
-      renderActive(window.__lastState || {});
+      try { renderActive(window.__lastState || {}); } catch (_) {}
     }
   });
 }

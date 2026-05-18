@@ -675,6 +675,11 @@ class ProgressHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = urlparse(self.path).path
 
+        if path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
+
         if path == "/stream":
             self._handle_sse_stream()
             return
